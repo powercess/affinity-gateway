@@ -1,0 +1,9 @@
+# 构建产物
+*.out
+/bin/
+/build/
+caddy
+
+# 本地配置
+.env
+*.local
