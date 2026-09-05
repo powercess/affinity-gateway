@@ -57,7 +57,8 @@
 
 | 文档 | 内容 |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | 架构设计、外部代理如何托管 new-api 入站/出站、三种部署模式、供应商适配策略 |
+| [docs/architecture.md](docs/architecture.md) | 架构设计、外部代理如何托管 new-api 入站/出站、出站接管机制、三种部署模式、供应商适配策略 |
+| [docs/testing.md](docs/testing.md) | **测试环境与亲和验证方案**:拓扑、harness 矩阵、断言口径、docker-compose、CI |
 | [docs/development.md](docs/development.md) | 开发指南:模块划分、Caddy 插件规范(xcaddy)、Caddyfile 写法、实现路线 |
 | [docs/experiments.md](docs/experiments.md) | 实验与测试记录:new-api 亲和、透传、会话稳定性的实测结论 |
 
@@ -82,6 +83,6 @@ caddy run --config Caddyfile
 ## 状态
 
 - [x] GitHub 仓库创建(`powercess/caddy-session-affinity`)
-- [x] 架构/开发/实验文档
+- [x] 架构/开发/测试/实验文档
 - [ ] 插件实现(规划中)
-- [ ] docker-compose.yaml(规划中)
+- [ ] docker-compose.yaml(规划中,测试编排见 [docs/testing.md](docs/testing.md))
