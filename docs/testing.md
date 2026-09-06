@@ -1,5 +1,13 @@
 # 测试环境与亲和验证方案
 
+> 当前执行口径以 [强亲和扩展 Harness 报告](strict-harness-report.md) 为准，包含 pi / Qwen Code / Kimi CLI、SQL 原子绑定和故障验证。以下保留早期方案与历史记录，不代表当前全部能力。
+
+> 已提供 deploy/compose.test.yaml、自动 seed.py、HTTP smoke 和完整链路 probe。
+> OpenAI Chat 基础链路已通过；零间隔多会话复验发现首次绑定漂移，见 integration-results.md。
+> 以下完整 harness 矩阵仍是规划，不代表所有客户端/协议都已验证。
+
+> 更新：真实 OpenCode 1.18.29、Claude Code 2.1.263、omp 18.1.11 已完成两轮 E2E，含四段捕获、独立校验和 600 请求压力回归。具体通过/失败范围见 [实测报告](harness-e2e-report.md)，下文未覆盖项仍是规划。
+
 > 目标:搭建**可复现、可自动化的测试环境**,用多种客户端(harness)验证:
 > ① 入站会话归一化是否正确;② new-api 渠道亲和是否按会话锁渠道;③ 出站供应商适配头是否正确。
 >
