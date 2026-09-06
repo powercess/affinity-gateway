@@ -2,8 +2,11 @@
 *.out
 /bin/
 /build/
-caddy
+/caddy
 
 # 本地配置
 .env
 *.local
+/deploy/secrets/
+/artifacts/
+__pycache__/

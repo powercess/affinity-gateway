@@ -1,0 +1,7 @@
+handle_path /r/deepseek/* {
+    session_affinity {
+        mode outbound
+        policy strip
+    }
+    reverse_proxy https://api.deepseek.com
+}

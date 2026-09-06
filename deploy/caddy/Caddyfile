@@ -1,0 +1,32 @@
+{
+    admin localhost:2019
+    auto_https off
+}
+
+:8236 {
+    # UI, login and management endpoints must not require a conversation ID.
+    @inference path /v1/messages /v1/chat/completions /v1/responses
+    handle @inference {
+        session_affinity {
+            mode inbound
+            secret_env SESSION_AFFINITY_SECRET
+            # Missing explicit identity is rejected. No soft affinity fallback.
+        }
+        reverse_proxy {$NEW_API_UPSTREAM:new-api:3000}
+    }
+    handle {
+        reverse_proxy {$NEW_API_UPSTREAM:new-api:3000}
+    }
+}
+
+# Internal Docker network only; never publish this port to the host.
+:8237 {
+    import routes/*.caddy
+    handle {
+        respond "Unknown route" 404
+    }
+}
+
+http://127.0.0.1:8238 {
+    respond /healthz "ok" 200
+}

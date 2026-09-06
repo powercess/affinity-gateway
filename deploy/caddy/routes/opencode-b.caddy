@@ -1,0 +1,10 @@
+handle_path /r/opencode-b/* {
+    session_affinity {
+        mode outbound
+        secret_env SESSION_AFFINITY_SECRET
+        policy derive
+        identity_scope opencode-b
+        output_header x-opencode-session
+    }
+    reverse_proxy https://supplier-b.example.com
+}

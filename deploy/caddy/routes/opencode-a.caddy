@@ -1,0 +1,11 @@
+# Replace placeholder and verify supplier accepts a 64-character hex identity.
+handle_path /r/opencode-a/* {
+    session_affinity {
+        mode outbound
+        secret_env SESSION_AFFINITY_SECRET
+        policy derive
+        identity_scope opencode-a
+        output_header x-opencode-session
+    }
+    reverse_proxy https://supplier-a.example.com
+}

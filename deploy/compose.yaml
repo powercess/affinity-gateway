@@ -1,0 +1,49 @@
+name: caddy-affinity
+services:
+  affinity-gateway:
+    image: caddy-session-affinity:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${INBOUND_BIND:-127.0.0.1}:${INBOUND_PORT:-8236}:8236"
+    environment:
+      NEW_API_UPSTREAM: ${NEW_API_UPSTREAM:-new-api:3000}
+      SESSION_AFFINITY_SECRET_FILE: /run/secrets/affinity_secret
+    secrets:
+      - affinity_secret
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      relay:
+        aliases:
+          - affinity-gateway
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8238/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  relay:
+    external: true
+    name: ${NEW_API_NETWORK:-new-api_default}
+secrets:
+  affinity_secret:
+    file: ./secrets/affinity_secret
+volumes:
+  caddy_data:
+  caddy_config:
