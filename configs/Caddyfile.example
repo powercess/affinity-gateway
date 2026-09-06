@@ -1,0 +1,49 @@
+{
+    admin localhost:2019
+}
+
+# Put this listener behind your existing authenticated ingress as appropriate.
+:8236 {
+    session_affinity {
+        mode inbound
+        secret_env SESSION_AFFINITY_SECRET
+        # Strong identity only. Missing IDs are rejected; no content/credential fallback.
+        # Enable only on an operator-controlled per-client contract endpoint:
+        # cache_key_as_session true
+    }
+    reverse_proxy 127.0.0.1:8235
+}
+
+# Internal only. For separate containers use a private network and restrict access.
+http://127.0.0.1:8237 {
+    handle_path /r/opencode-a/* {
+        session_affinity {
+            mode outbound
+            secret_env SESSION_AFFINITY_SECRET
+            policy derive
+            identity_scope opencode-a
+            output_header x-opencode-session
+        }
+        reverse_proxy https://supplier-a.example.com
+    }
+    handle_path /r/opencode-b/* {
+        session_affinity {
+            mode outbound
+            secret_env SESSION_AFFINITY_SECRET
+            policy derive
+            identity_scope opencode-b
+            output_header x-opencode-session
+        }
+        reverse_proxy https://supplier-b.example.com
+    }
+    handle_path /r/deepseek/* {
+        session_affinity {
+            mode outbound
+            policy strip
+        }
+        reverse_proxy https://api.deepseek.com
+    }
+    handle {
+        respond "Unknown route" 404
+    }
+}
