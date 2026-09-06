@@ -1,0 +1,11 @@
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git python3 && rm -rf /var/lib/apt/lists/*
+RUN npm install -g bun@1.4.2 opencode-ai@1.18.29 @anthropic-ai/claude-code@2.1.263 @oh-my-pi/pi-coding-agent@18.1.11
+RUN npm install -g @mariozechner/pi-coding-agent@0.73.1 @qwen-code/qwen-code@0.23.0
+# Kimi needs Python >=3.12; use the pinned Python image's runtime, not the host.
+COPY --from=python:3.13-slim-bookworm /usr/local/ /opt/python/
+ENV PATH="/opt/python/bin:${PATH}" LD_LIBRARY_PATH="/opt/python/lib"
+RUN python3.13 -m pip install --no-cache-dir kimi-cli==1.50.0
+WORKDIR /work
+ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 OPENCODE_DISABLE_AUTOUPDATE=true OPENCODE_DISABLE_MODELS_FETCH=true
+CMD ["python3", "/test/harness.py"]

@@ -1,0 +1,106 @@
+name: caddy-affinity-test
+services:
+  affinity-gateway:
+    image: caddy-session-affinity:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      SESSION_AFFINITY_SECRET: isolated-test-only-secret-do-not-use-in-production
+    volumes:
+      - ./test/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:${TEST_PORT:-18236}:8236"
+    depends_on:
+      capture:
+        condition: service_started
+      new-api:
+        condition: service_started
+      mock:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8238/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  new-api:
+    image: new-api-affinity-strict:local
+    build:
+      context: ./new-api
+    environment:
+      SQL_DSN: postgres://affinity:isolated-test-password@postgres:5432/affinity?sslmode=disable
+      REDIS_CONN_STRING: redis://redis:6379
+      SESSION_SECRET: isolated-new-api-test-session-secret
+      SQL_MAX_OPEN_CONNS: "20"
+      SQL_MAX_IDLE_CONNS: "5"
+      STRICT_SESSION_AFFINITY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: affinity
+      POSTGRES_PASSWORD: isolated-test-password
+      POSTGRES_DB: affinity
+    volumes:
+      - test_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U affinity -d affinity"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mock:
+    image: python:3.13-alpine
+    command: ["python", "/test/mock.py"]
+    environment:
+      MOCK_REPLY_CONFIG: /test/replies.json
+    volumes:
+      - ./test:/test:ro
+      - test_artifacts:/artifacts
+  capture:
+    image: python:3.13-alpine
+    command: ["python", "/test/capture.py"]
+    volumes:
+      - ./test:/test:ro
+      - test_artifacts:/artifacts
+    networks: [default, harness_net]
+  harness:
+    profiles: ["tools"]
+    build:
+      context: ./test
+      dockerfile: Dockerfile.harness
+    volumes:
+      - ./test:/test:ro
+      - test_artifacts:/artifacts
+    networks: [harness_net]
+    depends_on:
+      affinity-gateway:
+        condition: service_healthy
+  probe:
+    image: python:3.13-alpine
+    profiles: ["tools"]
+    command: ["python", "/test/probe.py"]
+    environment:
+      TEST_API_KEY: ${TEST_API_KEY:-}
+    volumes:
+      - ./test:/test:ro
+      - test_artifacts:/artifacts
+    depends_on:
+      affinity-gateway:
+        condition: service_healthy
+volumes:
+  test_db:
+  test_artifacts:
+networks:
+  harness_net:
+    internal: true

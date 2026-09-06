@@ -1,0 +1,66 @@
+{
+    admin localhost:2019
+    auto_https off
+}
+:8236 {
+    @inference path /v1/messages /v1/chat/completions /v1/responses
+    handle @inference {
+        session_affinity {
+            secret_env SESSION_AFFINITY_SECRET
+        }
+        reverse_proxy capture:8002
+    }
+    handle {
+        reverse_proxy new-api:3000
+    }
+}
+:8237 {
+    handle_path /r/opencode-a/* {
+        session_affinity {
+            mode outbound
+            secret_env SESSION_AFFINITY_SECRET
+            policy derive
+            identity_scope opencode-a
+            output_header x-opencode-session
+        }
+        reverse_proxy mock:8000 {
+            header_up X-Test-Route opencode-a
+        }
+    }
+    handle_path /r/opencode-b/* {
+        session_affinity {
+            mode outbound
+            secret_env SESSION_AFFINITY_SECRET
+            policy derive
+            identity_scope opencode-b
+            output_header x-opencode-session
+        }
+        reverse_proxy mock:8000 {
+            header_up X-Test-Route opencode-b
+        }
+    }
+    handle_path /r/no-session/* {
+        session_affinity {
+            mode outbound
+            policy strip
+        }
+        reverse_proxy mock:8000 {
+            header_up X-Test-Route no-session
+        }
+    }
+    handle {
+        respond "Unknown route" 404
+    }
+}
+http://127.0.0.1:8238 {
+    respond /healthz "ok" 200
+}
+# Explicit operator contract: this listener is ONLY for clients whose
+# prompt_cache_key is their persisted per-conversation identifier. Not public.
+:8239 {
+    session_affinity {
+        secret_env SESSION_AFFINITY_SECRET
+        cache_key_as_session true
+    }
+    reverse_proxy capture:8002
+}

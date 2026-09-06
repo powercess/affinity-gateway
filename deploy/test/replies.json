@@ -1,0 +1,13 @@
+{
+  "defaults": {"initial_delay_ms": 0, "chunk_interval_ms": 100, "end_delay_ms": 100, "chunk_chars": 64, "input_tokens": 10, "output_tokens": 5},
+  "scenarios": {
+    "resume": [
+      {"text": "已记录测试口令：蓝鲸-42。", "initial_delay_ms": 120, "chunk_chars": 4},
+      {"text": "会话已恢复，之前的测试口令是蓝鲸-42。", "initial_delay_ms": 200, "chunk_chars": 5},
+      {"text": "第三轮校验完成，测试口令仍为蓝鲸-42。", "initial_delay_ms": 80, "chunk_chars": 6}
+    ],
+    "slow": [
+      {"text": "这是一条可重复的慢速流式测试回复。", "initial_delay_ms": 800, "chunk_interval_ms": 150, "end_delay_ms": 300, "chunk_chars": 3}
+    ]
+  }
+}
