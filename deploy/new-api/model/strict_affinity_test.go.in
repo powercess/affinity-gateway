@@ -1,0 +1,39 @@
+package model
+
+import (
+ "context"
+ "sync"
+ "testing"
+ "github.com/glebarez/sqlite"
+ "github.com/stretchr/testify/assert"
+ "github.com/stretchr/testify/require"
+ "gorm.io/gorm"
+)
+
+func TestStrictBindingAtomicAndDurable(t *testing.T) {
+ original := DB
+ db,err:=gorm.Open(sqlite.Open(":memory:"),&gorm.Config{})
+ require.NoError(t,err)
+ sqlDB,err:=db.DB(); require.NoError(t,err); sqlDB.SetMaxOpenConns(1)
+ DB=db
+ t.Cleanup(func(){DB=original; _=sqlDB.Close()})
+ require.NoError(t,db.AutoMigrate(&StrictAffinityBinding{}))
+ start:=make(chan struct{}); results:=make(chan *StrictAffinityBinding,16); errs:=make(chan error,16)
+ var wg sync.WaitGroup
+ for i:=1;i<=16;i++ {wg.Add(1); go func(candidate int){defer wg.Done(); <-start
+  binding,err:=ReserveStrictAffinity(context.Background(),StrictAffinityBinding{ID:"one-session",ChannelID:candidate,Fingerprint:"original"})
+  results<-binding; errs<-err
+ }(i)}
+ close(start); wg.Wait(); close(results); close(errs)
+ for err:=range errs {require.NoError(t,err)}
+ winner,err:=FindStrictAffinity(context.Background(),"one-session"); require.NoError(t,err)
+ for got:=range results {require.NotNil(t,got); assert.Equal(t,winner.ChannelID,got.ChannelID)}
+ // A later retry/candidate must never replace the original binding.
+ retry,err:=ReserveStrictAffinity(context.Background(),StrictAffinityBinding{ID:"one-session",ChannelID:999,Fingerprint:"replacement"})
+ require.NoError(t,err); assert.Equal(t,*winner,*retry)
+ other,err:=ReserveStrictAffinity(context.Background(),StrictAffinityBinding{ID:"another-session",ChannelID:999,Fingerprint:"other"})
+ require.NoError(t,err); assert.Equal(t,999,other.ChannelID)
+ ctx,cancel:=context.WithCancel(context.Background()); cancel()
+ _,err=ReserveStrictAffinity(ctx,StrictAffinityBinding{ID:"not-admitted",ChannelID:1,Fingerprint:"x"}); require.Error(t,err)
+ _,err=FindStrictAffinity(context.Background(),"not-admitted"); assert.ErrorIs(t,err,gorm.ErrRecordNotFound)
+}

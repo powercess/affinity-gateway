@@ -1,0 +1,27 @@
+package model
+
+import (
+	"context"
+	"gorm.io/gorm/clause"
+)
+
+// StrictAffinityBinding is durable routing state, not an expiring cache.
+// Deleting these records or restoring an older database invalidates guarantees.
+type StrictAffinityBinding struct {
+	ID          string `gorm:"primaryKey;type:varchar(64)"`
+	ChannelID   int    `gorm:"not null"`
+	Fingerprint string `gorm:"type:varchar(64);not null"`
+}
+
+func FindStrictAffinity(ctx context.Context, id string) (*StrictAffinityBinding, error) {
+	var binding StrictAffinityBinding
+	err := DB.WithContext(ctx).First(&binding, "id = ?", id).Error
+	return &binding, err
+}
+
+func ReserveStrictAffinity(ctx context.Context, binding StrictAffinityBinding) (*StrictAffinityBinding, error) {
+	if err := DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&binding).Error; err != nil {
+		return nil, err
+	}
+	return FindStrictAffinity(ctx, binding.ID)
+}

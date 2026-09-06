@@ -1,0 +1,91 @@
+package middleware
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+func strictFingerprint(channel *model.Channel) string {
+	// Do not expose credentials; any routing/auth override change invalidates the pin.
+	raw, _ := common.Marshal([]any{channel.Type, channel.Key, channel.GetBaseURL(), channel.GetModelMapping(),
+		channel.OpenAIOrganization, channel.Other, channel.Setting, channel.ParamOverride, channel.HeaderOverride, channel.OtherSettings})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func selectStrictChannel(c *gin.Context, requestedModel, group string) (*model.Channel, error) {
+	sid := c.GetHeader("X-Session-Affinity")
+	_, decodeErr := hex.DecodeString(strings.TrimPrefix(sid, "sa:v1:"))
+	if len(c.Request.Header.Values("X-Session-Affinity")) != 1 || !strings.HasPrefix(sid, "sa:v1:") || len(sid) != 70 || decodeErr != nil {
+		return nil, errors.New("affinity_identity_required: use the trusted affinity gateway with a stable X-Session-Id")
+	}
+	if group == "auto" {
+		return nil, errors.New("affinity_scope_unsupported: strict routing requires an explicit group")
+	}
+	// This service is private behind the gateway. Scope again by authenticated token ID.
+	raw, _ := common.Marshal([]any{"strict:v1", common.GetContextKeyInt(c, constant.ContextKeyTokenId), group, requestedModel, sid})
+	sum := sha256.Sum256(raw)
+	id := hex.EncodeToString(sum[:])
+	binding, err := model.FindStrictAffinity(c.Request.Context(), id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		candidate, _, chooseErr := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+			Ctx: c, ModelName: requestedModel, TokenGroup: group, RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0),
+		})
+		if chooseErr != nil || candidate == nil {
+			return nil, errors.New("affinity_upstream_unavailable: no initial channel")
+		}
+		// Read current credentials from the primary DB, not a possibly stale cache.
+		candidate, err = model.GetChannelById(candidate.Id, true)
+		if err != nil {
+			return nil, errors.New("affinity_store_unavailable")
+		}
+		if candidate.ChannelInfo.IsMultiKey || candidate.Type != 1 && candidate.Type != 14 {
+			return nil, errors.New("affinity_channel_unsupported: requires single-key OpenAI or Anthropic channel")
+		}
+		binding, err = model.ReserveStrictAffinity(c.Request.Context(), model.StrictAffinityBinding{ID: id, ChannelID: candidate.Id, Fingerprint: strictFingerprint(candidate)})
+	}
+	if err != nil {
+		return nil, errors.New("affinity_store_unavailable: binding cannot be verified")
+	}
+	channel, err := model.GetChannelById(binding.ChannelID, true)
+	if err != nil || channel == nil {
+		return nil, errors.New("affinity_binding_unavailable: original channel missing")
+	}
+	if channel.Status != common.ChannelStatusEnabled || !model.IsChannelEnabledForGroupModel(group, requestedModel, channel.Id) || !channelSupportsRequestPath(channel, c.Request.URL.Path, requestedModel) {
+		return nil, errors.New("affinity_upstream_unavailable: original channel cannot serve this request; migration forbidden")
+	}
+	if channel.ChannelInfo.IsMultiKey || binding.Fingerprint != strictFingerprint(channel) {
+		return nil, errors.New("affinity_binding_changed: original channel configuration changed; migration forbidden")
+	}
+	c.Set("strict_affinity", true)
+	c.Header("X-Affinity-Mode", "strict")
+	return channel, nil
+}
+
+func strictRoutingEnabled() bool { return os.Getenv("STRICT_SESSION_AFFINITY") == "true" }
+
+func abortStrict(c *gin.Context, err error) {
+	code := strings.SplitN(err.Error(), ":", 2)[0]
+	status := http.StatusServiceUnavailable
+	if code == "affinity_identity_required" {
+		status = http.StatusBadRequest
+	}
+	c.Header("X-Affinity-Error", code)
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/messages") {
+		c.AbortWithStatusJSON(status, gin.H{"type": "error", "error": gin.H{"type": "api_error", "message": fmt.Sprint(err)}})
+	} else {
+		c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"type": "affinity_error", "code": code, "message": fmt.Sprint(err)}})
+	}
+}

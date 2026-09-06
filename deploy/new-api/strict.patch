@@ -1,0 +1,83 @@
+diff --git a/middleware/distributor.go b/middleware/distributor.go
+index 3f53aa3..566b700 100644
+--- a/middleware/distributor.go
++++ b/middleware/distributor.go
+@@ -40,6 +40,10 @@ func Distribute() func(c *gin.Context) {
+ 			return
+ 		}
+ 		if ok {
++			if strictRoutingEnabled() {
++				abortStrict(c, errors.New("affinity_scope_unsupported: channel-specific tokens bypass strict selection"))
++				return
++			}
+ 			id, err := strconv.Atoi(channelId.(string))
+ 			if err != nil {
+ 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
+@@ -102,6 +106,13 @@ func Distribute() func(c *gin.Context) {
+ 					}
+ 				}
+ 
++				if strictRoutingEnabled() {
++					channel, err = selectStrictChannel(c, modelRequest.Model, usingGroup)
++					if err != nil {
++						abortStrict(c, err)
++						return
++					}
++				}
+ 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
+ 					affinityUsable := false
+ 					preferred, err := model.CacheGetChannel(preferredChannelID)
+diff --git a/model/main.go b/model/main.go
+index 2144559..a4bdff5 100644
+--- a/model/main.go
++++ b/model/main.go
+@@ -259,6 +259,7 @@ func migrateDB() error {
+ 	}
+ 
+ 	err := DB.AutoMigrate(
++		&StrictAffinityBinding{},
+ 		&Channel{},
+ 		&Token{},
+ 		&User{},
+@@ -323,6 +324,7 @@ func migrateDBFast() error {
+ 		name  string
+ 	}{
+ 		{&Channel{}, "Channel"},
++		{&StrictAffinityBinding{}, "StrictAffinityBinding"},
+ 		{&Token{}, "Token"},
+ 		{&User{}, "User"},
+ 		{&UserSession{}, "UserSession"},
+diff --git a/service/channel_affinity.go b/service/channel_affinity.go
+index a112fb8..6e25324 100644
+--- a/service/channel_affinity.go
++++ b/service/channel_affinity.go
+@@ -548,6 +548,9 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
+ }
+ 
+ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
++	if c != nil && c.GetBool("strict_affinity") {
++		return 0, false
++	}
+ 	setting := operation_setting.GetChannelAffinitySetting()
+ 	if setting == nil || !setting.Enabled {
+ 		return 0, false
+@@ -624,6 +627,9 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup
+ }
+ 
+ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
++	if c != nil && c.GetBool("strict_affinity") {
++		return true
++	}
+ 	if c == nil {
+ 		return false
+ 	}
+@@ -711,6 +717,9 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
+ }
+ 
+ func RecordChannelAffinity(c *gin.Context, channelID int) {
++	if c != nil && c.GetBool("strict_affinity") {
++		return
++	}
+ 	if channelID <= 0 {
+ 		return
+ 	}
