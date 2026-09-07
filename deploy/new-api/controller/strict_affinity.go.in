@@ -1,0 +1,33 @@
+package controller
+
+import (
+	"net/http"
+	"os"
+
+	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
+)
+
+// GetStrictAffinityStatus exposes the effective fail-closed routing mode. It is
+// intentionally read-only: production strict affinity cannot be weakened by a
+// mutable UI option.
+func GetStrictAffinityStatus(c *gin.Context) {
+	count, err := model.CountStrictAffinityBindings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "strict affinity store unavailable"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"enabled":             os.Getenv("STRICT_SESSION_AFFINITY") == "true",
+			"mode":                "strict",
+			"binding_count":       count,
+			"store":               "database",
+			"durable":             true,
+			"migration_forbidden": true,
+			"identity_header":     "X-Session-Affinity",
+		},
+	})
+}

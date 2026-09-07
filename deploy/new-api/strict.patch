@@ -98,3 +98,122 @@ index d683d46..d3c9d0a 100644
  	return headerOverride, nil
  }
  
+diff --git a/router/api-router.go b/router/api-router.go
+index 31c595e..a961db8 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -195,6 +195,7 @@ func SetApiRouter(router *gin.Engine) {
+ 			optionRoute.PUT("/", controller.UpdateOption)
+ 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
+ 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
++			optionRoute.GET("/strict_affinity", controller.GetStrictAffinityStatus)
+ 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
+ 			optionRoute.POST("/rest_model_ratio", controller.ResetModelRatio)
+ 			optionRoute.GET("/waffo-pancake/catalog", controller.ListWaffoPancakeCatalog)
+diff --git a/web/src/features/system-settings/general/channel-affinity/api.ts b/web/src/features/system-settings/general/channel-affinity/api.ts
+index ca36ec4..69b539e 100644
+--- a/web/src/features/system-settings/general/channel-affinity/api.ts
++++ b/web/src/features/system-settings/general/channel-affinity/api.ts
+@@ -18,7 +18,18 @@ For commercial licensing, please contact support@quantumnous.com
+ */
+ import { api } from '@/lib/api'
+ 
+-import type { CacheStats } from './types'
++import type { CacheStats, StrictAffinityStatus } from './types'
++
++export async function getStrictAffinityStatus(): Promise<{
++  success: boolean
++  message?: string
++  data?: StrictAffinityStatus
++}> {
++  const res = await api.get('/api/option/strict_affinity', {
++    disableDuplicate: true,
++  } as Record<string, unknown>)
++  return res.data
++}
+ 
+ export async function getCacheStats(): Promise<{
+   success: boolean
+diff --git a/web/src/features/system-settings/general/channel-affinity/index.tsx b/web/src/features/system-settings/general/channel-affinity/index.tsx
+index 8e8fbfd..ec3c3d6 100644
+--- a/web/src/features/system-settings/general/channel-affinity/index.tsx
++++ b/web/src/features/system-settings/general/channel-affinity/index.tsx
+@@ -41,10 +41,20 @@ import { SettingsSwitchField } from '../../components/settings-form-layout'
+ import { SettingsPageActionsPortal } from '../../components/settings-page-context'
+ import { SettingsSection } from '../../components/settings-section'
+ import { useUpdateOption } from '../../hooks/use-update-option'
+-import { getCacheStats, clearAllCache, clearRuleCache } from './api'
++import {
++  getCacheStats,
++  getStrictAffinityStatus,
++  clearAllCache,
++  clearRuleCache,
++} from './api'
+ import { RULE_TEMPLATES, cloneTemplate, makeUniqueName } from './constants'
+ import { RuleEditorDialog } from './rule-editor-dialog'
+-import type { AffinityRule, CacheStats, ChannelAffinitySettings } from './types'
++import type {
++  AffinityRule,
++  CacheStats,
++  ChannelAffinitySettings,
++  StrictAffinityStatus,
++} from './types'
+ 
+ function parseRules(jsonStr: string): AffinityRule[] {
+   try {
+@@ -156,6 +166,8 @@ export function ChannelAffinitySection(props: Props) {
+     )
+   )
+   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null)
++  const [strictStatus, setStrictStatus] =
++    useState<StrictAffinityStatus | null>(null)
+   const [cacheLoading, setCacheLoading] = useState(false)
+   const [saving, setSaving] = useState(false)
+ 
+@@ -205,6 +217,9 @@ export function ChannelAffinitySection(props: Props) {
+ 
+   useEffect(() => {
+     refreshCache()
++    getStrictAffinityStatus()
++      .then((res) => setStrictStatus(res.success ? res.data || null : null))
++      .catch(() => setStrictStatus(null))
+   }, [refreshCache])
+ 
+   const appendCliTemplates = () => {
+@@ -404,6 +419,14 @@ export function ChannelAffinitySection(props: Props) {
+   return (
+     <>
+       <SettingsSection title={t('Channel Affinity')}>
++        {strictStatus?.enabled && (
++          <Alert>
++            <AlertDescription className='text-xs'>
++              Strict affinity is enforced · {strictStatus.binding_count}{' '}
++              durable bindings · database store · channel migration disabled
++            </AlertDescription>
++          </Alert>
++        )}
+         <Alert>
+           <AlertDescription className='text-xs'>
+             {t(
+diff --git a/web/src/features/system-settings/general/channel-affinity/types.ts b/web/src/features/system-settings/general/channel-affinity/types.ts
+index 23623c8..5b8dc3c 100644
+--- a/web/src/features/system-settings/general/channel-affinity/types.ts
++++ b/web/src/features/system-settings/general/channel-affinity/types.ts
+@@ -47,6 +47,16 @@ export interface CacheStats {
+   cache_algo: string
+ }
+ 
++export interface StrictAffinityStatus {
++  enabled: boolean
++  mode: 'strict'
++  binding_count: number
++  store: 'database'
++  durable: boolean
++  migration_forbidden: boolean
++  identity_header: string
++}
++
+ export interface ChannelAffinitySettings {
+   'channel_affinity_setting.enabled': boolean
+   'channel_affinity_setting.switch_on_success': boolean
+ 

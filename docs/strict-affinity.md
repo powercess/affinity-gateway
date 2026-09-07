@@ -2,6 +2,8 @@
 
 当前只实现强亲和；[软亲和备忘](soft-affinity-deferred.md) 已搁置。
 
+new-api 管理端通过只读接口 `GET /api/option/strict_affinity` 暴露强亲和的有效状态、持久绑定数量和存储类型。系统设置的渠道亲和页面会单独展示该状态；它不等同于 new-api 原生的 TTL 缓存亲和，也不能通过普通亲和开关关闭。
+
 ## 保证范围
 
 固定到本部署控制的 single-key OpenAI(type 1) / Anthropic(type 14) new-api 渠道。绑定作用域是认证 token ID、规范会话 ID、明确分组、请求模型。同一会话不同模型可以分别绑定（例如主模型与标题模型）；这不是跨模型全局固定同一站点。供应商内部账号调度不在本项目控制范围。

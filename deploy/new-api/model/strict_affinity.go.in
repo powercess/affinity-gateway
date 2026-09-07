@@ -19,6 +19,12 @@ func FindStrictAffinity(ctx context.Context, id string) (*StrictAffinityBinding,
 	return &binding, err
 }
 
+func CountStrictAffinityBindings(ctx context.Context) (int64, error) {
+	var count int64
+	err := DB.WithContext(ctx).Model(&StrictAffinityBinding{}).Count(&count).Error
+	return count, err
+}
+
 func ReserveStrictAffinity(ctx context.Context, binding StrictAffinityBinding) (*StrictAffinityBinding, error) {
 	if err := DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&binding).Error; err != nil {
 		return nil, err

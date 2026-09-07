@@ -6,6 +6,7 @@ COPY strict.patch /strict.patch
 RUN git apply --check /strict.patch && git apply /strict.patch
 COPY model/strict_affinity.go.in model/strict_affinity.go
 COPY middleware/strict_affinity.go.in middleware/strict_affinity.go
+COPY controller/strict_affinity.go.in controller/strict_affinity.go
 RUN go mod download
 
 FROM oven/bun:1 AS web
@@ -17,7 +18,7 @@ RUN bun install --frozen-lockfile && DISABLE_ESLINT_PLUGIN=true bun run build
 FROM source AS build
 ENV CGO_ENABLED=0 GOWORK=off
 COPY --from=web /src/web/dist ./web/dist
-RUN go build -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.25-strict.1' -o /new-api .
+RUN go build -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.25-strict.2' -o /new-api .
 
 FROM source AS unit
 COPY model/strict_affinity_test.go.in model/strict_affinity_test.go

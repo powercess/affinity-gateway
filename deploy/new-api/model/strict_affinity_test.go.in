@@ -33,6 +33,7 @@ func TestStrictBindingAtomicAndDurable(t *testing.T) {
  require.NoError(t,err); assert.Equal(t,*winner,*retry)
  other,err:=ReserveStrictAffinity(context.Background(),StrictAffinityBinding{ID:"another-session",ChannelID:999,Fingerprint:"other"})
  require.NoError(t,err); assert.Equal(t,999,other.ChannelID)
+ count,err:=CountStrictAffinityBindings(context.Background()); require.NoError(t,err); assert.Equal(t,int64(2),count)
  ctx,cancel:=context.WithCancel(context.Background()); cancel()
  _,err=ReserveStrictAffinity(ctx,StrictAffinityBinding{ID:"not-admitted",ChannelID:1,Fingerprint:"x"}); require.Error(t,err)
  _,err=FindStrictAffinity(context.Background(),"not-admitted"); assert.ErrorIs(t,err,gorm.ErrRecordNotFound)
