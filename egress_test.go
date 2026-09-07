@@ -123,6 +123,36 @@ func TestEgressOpenCodeGoPluginFailsClosed(t *testing.T) {
 	}
 }
 
+func TestEgressOpenCodeGoPluginAllowsSessionlessModelDiscovery(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/zen/v1/models" {
+			t.Errorf("unexpected model discovery request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("x-opencode-session"); got != "" {
+			t.Errorf("model discovery received a supplier session: %q", got)
+		}
+		if got := r.Header.Get(internalHeader); got != "" {
+			t.Errorf("internal affinity header leaked: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"test-model"}]}`))
+	}))
+	defer upstream.Close()
+	original := suppliers
+	suppliers = &supplierRegistry{rows: map[string]Supplier{"go-main": {ID: "go-main", Origin: upstream.URL, Plugins: []PluginRef{{ID: opencodeGoSessionPlugin, Version: opencodeGoSessionVersion}}}}}
+	defer func() { suppliers = original }()
+	oldTransport := http.DefaultTransport
+	http.DefaultTransport = upstream.Client().Transport
+	defer func() { http.DefaultTransport = oldTransport }()
+
+	req := httptest.NewRequest(http.MethodGet, "http://gateway/r/go-main/zen/v1/models", nil)
+	req.Header.Set("x-opencode-session", "ses_untrusted")
+	w := httptest.NewRecorder()
+	if err := (&Egress{secret: strings.Repeat("s", 32)}).ServeHTTP(w, req, nil); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("model discovery failed: %v, %d, %s", err, w.Code, w.Body.String())
+	}
+}
+
 func TestSupplierInputValidation(t *testing.T) {
 	for _, row := range []Supplier{{ID: "UPPER", Origin: "https://a.example"}, {ID: "ok", Origin: "http://a.example"}, {ID: "ok", Origin: "https://a.example/v1"}, {ID: "ok", Origin: "https://user:key@a.example"}, {ID: "ok", Origin: "https://a.example", Plugins: []PluginRef{{ID: "unknown", Version: "1.0.0"}}}} {
 		r := &supplierRegistry{path: filepath.Join(t.TempDir(), "suppliers.json"), rows: map[string]Supplier{}}

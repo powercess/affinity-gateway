@@ -265,7 +265,14 @@ func (e *Egress) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 		policy = supplier.Plugins[0].ID + "@" + supplier.Plugins[0].Version
 	}
 	event := Observation{ID: hex.EncodeToString(randomID[:]), At: time.Now().UTC(), Mode: "outbound", Profile: supplier.ID, Policy: policy, Session: fingerprint(e.secret, affinity), Before: observedHeaders(r, e.secret)}
+	sessionlessModelDiscovery := r.Method == http.MethodGet && strings.HasSuffix("/"+strings.Trim(parts[1], "/"), "/models")
 	for _, plugin := range supplier.Plugins {
+		// Model discovery is a control-plane operation initiated by new-api. It
+		// has no conversation identity and must not acquire a supplier session.
+		if sessionlessModelDiscovery {
+			r.Header.Del("x-opencode-session")
+			continue
+		}
 		if len(affinityValues) != 1 {
 			writeEgressFailure(w, http.StatusBadRequest, "affinity_internal_invalid", "Missing or invalid internal session identity")
 			event.Status, event.Error, event.After = http.StatusBadRequest, "affinity_internal_invalid", observedHeaders(r, e.secret)
