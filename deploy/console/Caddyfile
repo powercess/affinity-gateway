@@ -1,0 +1,8 @@
+import /etc/caddy/test.Caddyfile
+
+# Docker internal network only. Browser traffic comes through the console.
+:8240 {
+    route /api/* {
+        affinity_console AFFINITY_CONSOLE_PASSWORD SUPPLIER_CONFIG_FILE
+    }
+}

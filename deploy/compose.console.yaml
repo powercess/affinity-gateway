@@ -1,0 +1,42 @@
+# Run together with compose.test.yaml, using a separate Compose project.
+services:
+  affinity-gateway:
+    image: caddy-session-affinity:console
+    ports: !override
+      - "${CONSOLE_BIND:-0.0.0.0}:${TEST_PORT:-18243}:8236"
+    environment:
+      AFFINITY_CONSOLE_PASSWORD: ${AFFINITY_CONSOLE_PASSWORD:-affinity-local-console-development}
+      SUPPLIER_CONFIG_FILE: /var/lib/affinity/suppliers.json
+    volumes:
+      - ./console/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./test/Caddyfile:/etc/caddy/test.Caddyfile:ro
+      - console_config:/var/lib/affinity
+  console:
+    image: affinity-console:local
+    build:
+      context: ..
+      dockerfile: deploy/console/Dockerfile
+    ports:
+      - "${CONSOLE_BIND:-0.0.0.0}:${CONSOLE_PORT:-18242}:80"
+    depends_on:
+      affinity-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  seed:
+    image: python:3.13-alpine
+    command: ["python", "/test/console_seed.py"]
+    environment:
+      SEED_ONLY: "1"
+    volumes:
+      - ./test:/test:ro
+      - test_artifacts:/artifacts
+    depends_on:
+      affinity-gateway:
+        condition: service_healthy
+    restart: "no"
+volumes:
+  console_config:

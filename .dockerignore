@@ -6,3 +6,6 @@
 bin
 build
 /caddy
+**/node_modules
+web/dist
+web/coverage

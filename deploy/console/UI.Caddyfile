@@ -1,0 +1,17 @@
+{
+    admin off
+    auto_https off
+    persist_config off
+}
+:80 {
+    handle /healthz {
+        respond "ok" 200
+    }
+    handle /api/* {
+        reverse_proxy affinity-gateway:8240
+    }
+    handle {
+        root * /srv
+        file_server
+    }
+}

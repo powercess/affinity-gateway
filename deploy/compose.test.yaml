@@ -7,8 +7,10 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       SESSION_AFFINITY_SECRET: isolated-test-only-secret-do-not-use-in-production
+      SUPPLIER_CONFIG_FILE: /artifacts/suppliers.json
     volumes:
       - ./test/Caddyfile:/etc/caddy/Caddyfile:ro
+      - test_artifacts:/artifacts
     ports:
       - "127.0.0.1:${TEST_PORT:-18236}:8236"
     depends_on:

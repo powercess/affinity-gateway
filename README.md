@@ -92,7 +92,28 @@ xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=.
 
 ## 状态
 
+### 亲和控制台
+
+整套 Docker 联调环境（控制台 + 网关 + new-api + 数据库 + 测试供应商）见 [容器启动说明](deploy/console/README.md)。
+
+日常管理使用 just + Bash：`just up`、`just status`、`just reload`、`just test`。运行 `just` 列出全部命令；环境管理不依赖宿主机 Node/Bun。
+
+前端位于 [web/](web/README.md)，采用 React / Vite / shadcn/ui。已接入带认证的网关观测 API 和 SSE；原型保留在 `?demo=1#/`。采集配置、保留范围及当前限制见 [观测接口](docs/observability.md)。WebSocket 采集尚未实现。
+
+```bash
+cd web
+npm ci
+npm run dev -- --port 18240 --strictPort
+```
+
+预览仅监听本机，访问 `http://127.0.0.1:18240/`。运行 `npm test` 和 `npm run build` 可校验原型。
+
+### 网关
+
 - [x] GitHub 仓库创建(`powercess/caddy-session-affinity`)
 - [x] 架构/开发/测试/实验文档
 - [x] 第一版插件实现（显式会话 + 出站策略；真实 new-api/供应商联调待完成）
 - [x] Docker 镜像与部署/隔离测试 Compose（见 deploy/README.md）
+# 真实供应商部署
+
+完整网关、new-api、数据库与控制台编排见 [真实供应商环境](deploy/live/README.md)。使用 `just live up` 启动，在控制台配置真实出口供应商；环境与原有模拟测试环境相互独立。

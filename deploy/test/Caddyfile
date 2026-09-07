@@ -7,6 +7,7 @@
     handle @inference {
         session_affinity {
             secret_env SESSION_AFFINITY_SECRET
+            observe_id harness-main
         }
         reverse_proxy capture:8002
     }
@@ -21,6 +22,7 @@
             secret_env SESSION_AFFINITY_SECRET
             policy derive
             identity_scope opencode-a
+            observe_id opencode-a
             output_header x-opencode-session
         }
         reverse_proxy mock:8000 {
@@ -33,6 +35,7 @@
             secret_env SESSION_AFFINITY_SECRET
             policy derive
             identity_scope opencode-b
+            observe_id opencode-b
             output_header x-opencode-session
         }
         reverse_proxy mock:8000 {
@@ -43,10 +46,14 @@
         session_affinity {
             mode outbound
             policy strip
+            observe_id no-session
         }
         reverse_proxy mock:8000 {
             header_up X-Test-Route no-session
         }
+    }
+    handle /r/* {
+        affinity_egress SUPPLIER_CONFIG_FILE SESSION_AFFINITY_SECRET
     }
     handle {
         respond "Unknown route" 404
@@ -61,6 +68,7 @@ http://127.0.0.1:8238 {
     session_affinity {
         secret_env SESSION_AFFINITY_SECRET
         cache_key_as_session true
+        observe_id cache-contract
     }
     reverse_proxy capture:8002
 }

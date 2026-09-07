@@ -1,0 +1,75 @@
+name: caddy-affinity-live
+services:
+  affinity-gateway:
+    image: caddy-session-affinity:live
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      SESSION_AFFINITY_SECRET: ${SESSION_AFFINITY_SECRET:?Set SESSION_AFFINITY_SECRET}
+      AFFINITY_CONSOLE_PASSWORD: ${AFFINITY_CONSOLE_PASSWORD:?Set AFFINITY_CONSOLE_PASSWORD}
+      SUPPLIER_CONFIG_FILE: /var/lib/affinity/suppliers.json
+    volumes:
+      - ./live/Caddyfile:/etc/caddy/Caddyfile:ro
+      - live_config:/var/lib/affinity
+    ports:
+      - "${LIVE_BIND:-0.0.0.0}:${LIVE_API_PORT:-18343}:8236"
+    depends_on:
+      - new-api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8238/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  console:
+    image: affinity-console:live
+    build:
+      context: ..
+      dockerfile: deploy/console/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${LIVE_BIND:-0.0.0.0}:${LIVE_CONSOLE_PORT:-18342}:80"
+    depends_on:
+      affinity-gateway:
+        condition: service_healthy
+  new-api:
+    image: new-api-affinity-strict:local
+    build:
+      context: ./new-api
+    restart: unless-stopped
+    environment:
+      SQL_DSN: postgres://affinity:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/affinity?sslmode=disable
+      REDIS_CONN_STRING: redis://redis:6379
+      SESSION_SECRET: ${NEW_API_SESSION_SECRET:?Set NEW_API_SESSION_SECRET}
+      STRICT_SESSION_AFFINITY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: affinity
+      POSTGRES_DB: affinity
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - live_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U affinity -d affinity"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  live_db:
+  live_config:
