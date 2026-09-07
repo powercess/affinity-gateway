@@ -7,7 +7,7 @@
 ```text
 ID: opencode-cn059
 Origin: https://opencode.ai
-插件: opencode-go-session@1.0.0
+插件: opencode-go-session@1.1.0
 ```
 
 然后在 new-api 创建单 Key 渠道：

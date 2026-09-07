@@ -202,7 +202,8 @@ export default function LiveConsole() {
   async function addSupplier(e: FormEvent) {
     e.preventDefault(); setSavingSupplier(true); setError("");
     try {
-      const plugins = supplierAdapter ? [{id: supplierAdapter, version: "1.0.0"}] : [];
+      const [id, version] = supplierAdapter.split("@");
+      const plugins = supplierAdapter ? [{id, version}] : [];
       const response = await fetch("/api/suppliers", { method: "POST", headers: {...authHeaders, "Content-Type":"application/json"}, body: JSON.stringify({id:supplierID, origin:supplierOrigin, plugins}) });
       if (!response.ok) throw new Error((await response.text()).trim() || `保存失败（${response.status}）`);
       const data = await response.json() as {items: Supplier[]}; setSuppliers(data.items); setSupplierID(""); setSupplierOrigin(""); setSupplierAdapter("");
@@ -217,10 +218,11 @@ export default function LiveConsole() {
     else setError((await response.text()).trim() || `删除失败（${response.status}）`);
   }
   async function updateSupplierPlugins(supplier: Supplier) {
-    const adapter = pluginDrafts[supplier.id] ?? supplier.plugins?.[0]?.id ?? "";
+    const adapter = pluginDrafts[supplier.id] ?? (supplier.plugins?.[0] ? `${supplier.plugins[0].id}@${supplier.plugins[0].version}` : "");
     setSavingPlugin(supplier.id); setError("");
     try {
-      const plugins = adapter ? [{id: adapter, version: "1.0.0"}] : [];
+      const [id, version] = adapter.split("@");
+      const plugins = adapter ? [{id, version}] : [];
       const response = await fetch(`/api/suppliers/${supplier.id}/plugins`, {method:"PUT", headers:{...authHeaders, "Content-Type":"application/json"}, body:JSON.stringify({plugins})});
       if (!response.ok) throw new Error((await response.text()).trim() || `保存失败（${response.status}）`);
       const data = await response.json() as {items: Supplier[]};
@@ -500,14 +502,14 @@ export default function LiveConsole() {
                     <form className="supplier-form" onSubmit={addSupplier}>
                       <div><label htmlFor="supplier-id">出口 ID</label><Input id="supplier-id" required pattern="[a-z][a-z0-9-]{0,47}" placeholder="openai-main" value={supplierID} onChange={(e)=>setSupplierID(e.target.value)} /></div>
                       <div><label htmlFor="supplier-origin">真实 Origin</label><Input id="supplier-origin" required type="url" placeholder="https://api.example.com" value={supplierOrigin} onChange={(e)=>setSupplierOrigin(e.target.value)} /></div>
-                      <div><label htmlFor="supplier-adapter">出站插件</label><select id="supplier-adapter" value={supplierAdapter} onChange={(e)=>setSupplierAdapter(e.target.value)}><option value="">无</option><option value="opencode-go-session">OpenCode Go 会话 · 1.0.0</option></select></div>
+                      <div><label htmlFor="supplier-adapter">出站插件</label><select id="supplier-adapter" value={supplierAdapter} onChange={(e)=>setSupplierAdapter(e.target.value)}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select></div>
                       <Button type="submit" disabled={savingSupplier}>{savingSupplier ? "保存中…" : "添加"}</Button>
                     </form>
                   </section>
                   <section className="panel">
                     <div className="panel-heading"><h2>出口供应商</h2></div>
                     <Table><TableHeader><TableRow><TableHead>出口 ID</TableHead><TableHead>内部 Base URL</TableHead><TableHead>真实 Origin</TableHead><TableHead>插件</TableHead><TableHead /></TableRow></TableHeader>
-                    <TableBody>{suppliers.map((supplier)=>{const current=supplier.plugins?.[0]?.id ?? ""; const draft=pluginDrafts[supplier.id] ?? current; return <TableRow key={supplier.id}><TableCell className="mono">{supplier.id}</TableCell><TableCell><span className="mono">{supplier.internal_base_url}</span><Button variant="ghost" size="icon" aria-label={`复制 ${supplier.id} 内部地址`} onClick={()=>void navigator.clipboard.writeText(supplier.internal_base_url)}><Copy size={15}/></Button></TableCell><TableCell className="mono">{supplier.origin}</TableCell><TableCell><div className="binding-plugin-editor"><select aria-label={`${supplier.id} 插件`} value={draft} onChange={(e)=>setPluginDrafts((rows)=>({...rows,[supplier.id]:e.target.value}))}><option value="">无</option><option value="opencode-go-session">OpenCode Go 会话 · 1.0.0</option></select><Button variant="outline" disabled={draft===current || savingPlugin===supplier.id} onClick={()=>void updateSupplierPlugins(supplier)}>{savingPlugin===supplier.id ? "保存中…" : "保存"}</Button></div></TableCell><TableCell><Button variant="ghost" size="icon" aria-label={`删除 ${supplier.id}`} onClick={()=>void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button></TableCell></TableRow>})}{!suppliers.length&&<TableRow><TableCell colSpan={5}><div className="empty">暂无出口</div></TableCell></TableRow>}</TableBody></Table>
+                    <TableBody>{suppliers.map((supplier)=>{const current=supplier.plugins?.[0] ? `${supplier.plugins[0].id}@${supplier.plugins[0].version}` : ""; const draft=pluginDrafts[supplier.id] ?? current; return <TableRow key={supplier.id}><TableCell className="mono">{supplier.id}</TableCell><TableCell><span className="mono">{supplier.internal_base_url}</span><Button variant="ghost" size="icon" aria-label={`复制 ${supplier.id} 内部地址`} onClick={()=>void navigator.clipboard.writeText(supplier.internal_base_url)}><Copy size={15}/></Button></TableCell><TableCell className="mono">{supplier.origin}</TableCell><TableCell><div className="binding-plugin-editor"><select aria-label={`${supplier.id} 插件`} value={draft} onChange={(e)=>setPluginDrafts((rows)=>({...rows,[supplier.id]:e.target.value}))}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select><Button variant="outline" disabled={draft===current || savingPlugin===supplier.id} onClick={()=>void updateSupplierPlugins(supplier)}>{savingPlugin===supplier.id ? "保存中…" : "保存"}</Button></div></TableCell><TableCell><Button variant="ghost" size="icon" aria-label={`删除 ${supplier.id}`} onClick={()=>void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button></TableCell></TableRow>})}{!suppliers.length&&<TableRow><TableCell colSpan={5}><div className="empty">暂无出口</div></TableCell></TableRow>}</TableBody></Table>
                   </section>
                 </div>
               )}

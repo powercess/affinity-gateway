@@ -76,7 +76,7 @@ func TestEgressOpenCodeGoPlugin(t *testing.T) {
 	var first string
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get("x-opencode-session")
-		if got == "" || !strings.HasPrefix(got, "ses_") {
+		if got == "" || !strings.HasPrefix(got, "ses_") || len(got) != 30 {
 			t.Errorf("missing derived OpenCode session: %q", got)
 		}
 		if first == "" {

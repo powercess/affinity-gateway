@@ -1,13 +1,17 @@
 package sessionaffinity
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 	"net/http"
 )
 
 const (
-	opencodeGoSessionPlugin  = "opencode-go-session"
-	opencodeGoSessionVersion = "1.0.0"
+	opencodeGoSessionPlugin        = "opencode-go-session"
+	opencodeGoSessionVersion       = "1.1.0"
+	opencodeGoSessionLegacyVersion = "1.0.0"
+	opencodeIDBase62               = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
 
 // PluginRef pins one adapter implementation in a supplier binding.
@@ -26,7 +30,7 @@ type requestMutation struct {
 func validatePluginChain(refs []PluginRef) error {
 	seen := map[string]bool{}
 	for _, ref := range refs {
-		if ref.ID != opencodeGoSessionPlugin || ref.Version != opencodeGoSessionVersion {
+		if !supportedPlugin(ref) {
 			return errors.New("unsupported plugin id or version")
 		}
 		key := ref.ID + "@" + ref.Version
@@ -39,7 +43,7 @@ func validatePluginChain(refs []PluginRef) error {
 }
 
 func buildPluginMutation(ref PluginRef, secret, bindingID, affinity string) (requestMutation, error) {
-	if ref.ID != opencodeGoSessionPlugin || ref.Version != opencodeGoSessionVersion {
+	if !supportedPlugin(ref) {
 		return requestMutation{}, errors.New("unsupported plugin id or version")
 	}
 	if len(secret) < 32 {
@@ -48,9 +52,38 @@ func buildPluginMutation(ref PluginRef, secret, bindingID, affinity string) (req
 	if !canonicalID(affinity) {
 		return requestMutation{}, errors.New("missing or invalid trusted affinity identity")
 	}
-	return requestMutation{SetHeaders: map[string]string{
-		"x-opencode-session": "ses_" + derive(secret, "supplier-session:v1", bindingID, affinity),
-	}}, nil
+	session := "ses_" + derive(secret, "supplier-session:v1", bindingID, affinity)
+	if ref.Version == opencodeGoSessionVersion {
+		session = nativeOpenCodeSessionID(secret, bindingID, affinity)
+	}
+	return requestMutation{SetHeaders: map[string]string{"x-opencode-session": session}}, nil
+}
+
+func supportedPlugin(ref PluginRef) bool {
+	return ref.ID == opencodeGoSessionPlugin &&
+		(ref.Version == opencodeGoSessionVersion || ref.Version == opencodeGoSessionLegacyVersion)
+}
+
+// nativeOpenCodeSessionID matches OpenCode's visible ID shape. It remains a
+// gateway-derived affinity ID and does not claim to have been issued by OpenCode.
+func nativeOpenCodeSessionID(secret, bindingID, affinity string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	for _, part := range []string{"supplier-session:v2", bindingID, affinity} {
+		h.Write([]byte{byte(len(part) >> 24), byte(len(part) >> 16), byte(len(part) >> 8), byte(len(part))})
+		h.Write([]byte(part))
+	}
+	sum := h.Sum(nil)
+	hexPart := make([]byte, 12)
+	const hexChars = "0123456789abcdef"
+	for i := range 6 {
+		hexPart[i*2] = hexChars[sum[i]>>4]
+		hexPart[i*2+1] = hexChars[sum[i]&15]
+	}
+	base62Part := make([]byte, 14)
+	for i := range base62Part {
+		base62Part[i] = opencodeIDBase62[int(sum[6+i])%len(opencodeIDBase62)]
+	}
+	return "ses_" + string(hexPart) + string(base62Part)
 }
 
 func applyMutation(header http.Header, mutation requestMutation) error {

@@ -4,9 +4,9 @@
 
 | 组件 | 镜像 |
 | --- | --- |
-| 亲和网关 | `ghcr.io/powercess/caddy-session-affinity-gateway:0.1.3` |
-| 定制 new-api | `ghcr.io/powercess/caddy-session-affinity-new-api:0.1.3` |
-| 控制台 | `ghcr.io/powercess/caddy-session-affinity-console:0.1.3` |
+| 亲和网关 | `ghcr.io/powercess/caddy-session-affinity-gateway:0.1.4` |
+| 定制 new-api | `ghcr.io/powercess/caddy-session-affinity-new-api:0.1.4` |
+| 控制台 | `ghcr.io/powercess/caddy-session-affinity-console:0.1.4` |
 
 ## 启动
 

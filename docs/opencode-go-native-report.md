@@ -52,8 +52,11 @@
 
 ## 第一版适配策略
 
-`opencode-go-session@1.0.0` 只根据可信的 `X-Session-Affinity` 和 binding ID
-派生稳定的 `x-opencode-session`。Go 核心应用修改后强制删除内部亲和头。
+`opencode-go-session@1.1.0` 只根据可信的 `X-Session-Affinity` 和 binding ID
+派生稳定的、符合 OpenCode 原生可见形态（`ses_` + 12 位小写十六进制 +
+14 位 Base62）的 `x-opencode-session`。该值由网关确定性派生，并非 OpenCode
+签发的真实内部 ID。`1.0.0` 的 64 位十六进制后缀仅保留用于已固定 binding 的兼容。
+Go 核心应用修改后强制删除内部亲和头。
 `User-Agent`、`x-opencode-client`、`x-opencode-project` 和
 `x-opencode-request` 只透传已有值；本插件不生成、不替换，也不把其他 harness
 伪装成官方 OpenCode。身份伪造若未来确有需要，必须作为单独显式插件开发。
