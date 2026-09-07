@@ -1,5 +1,19 @@
 # caddy-session-affinity
 
+## v0.1 快速部署
+
+发布版包含两个核心镜像和一个可选控制台镜像：gateway、patched new-api、console。
+
+```bash
+cp deploy/release.env.example deploy/release.env
+# 替换文件中的所有 secret
+docker compose --env-file deploy/release.env -f deploy/compose.release.yaml up -d
+```
+
+默认入口：模型 API `:18343`，控制台 `:18342`。new-api、PostgreSQL、Redis 和
+网关出口只存在于 Compose 内网。完整说明见 [部署](docs/deployment.md)、
+[配置](docs/configuration.md) 和 [安全边界](docs/security.md)。
+
 Docker Compose 已提供：[部署指南](deploy/README.md)。生产编排接入已有 new-api；
 隔离测试编排包含独立 new-api、Postgres、Redis 和 mock 上游，并提供自动初始化与探针。
 
@@ -28,8 +42,8 @@ Docker Compose 已提供：[部署指南](deploy/README.md)。生产编排接入
 核心结论(经实测,详见 [docs/experiments.md](docs/experiments.md)):
 
 1. **new-api 原生支持 `request_header` 亲和键**(`x-opencode-session` / `X-Session-Id` 作为 key_source 真实生效),也支持 `gjson` 从 body 提取 `metadata.user_id` / `user`;
-2. **new-api 不能"生成"会话 ID**——它只能透传已有值(header_override / pass_headers),会话 ID 只能由客户端或中间代理生成;
-3. **new-api 默认不透传客户端头**——出站头需要渠道显式配置 `header_override` / `param_override_template.pass_headers`,或由外部代理接管。
+2. **new-api 不能"生成"会话 ID**——会话 ID 只能由客户端或中间代理生成；本仓库严格补丁仅原样透传已验证的内部标识；
+3. **原版 new-api 默认不透传客户端头**——本仓库严格补丁只对 `X-Session-Affinity` 建立统一透传保证，其余头仍按原版规则处理。
 
 因此标识规范化与供应商适配由 Caddy 负责，强渠道绑定由固定版本 new-api 补丁负责；不再以零 fork 为目标。
 

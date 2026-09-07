@@ -21,7 +21,18 @@ RUN go build -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v1
 
 FROM source AS unit
 COPY model/strict_affinity_test.go.in model/strict_affinity_test.go
-RUN go test ./model -run '^TestStrictBindingAtomicAndDurable$' -count=1
+COPY relay/channel/strict_affinity_passthrough_test.go.in relay/channel/strict_affinity_passthrough_test.go
+RUN go test ./model -run '^TestStrictBindingAtomicAndDurable$' -count=1 && \
+    go test ./relay/channel -run '^TestStrictAffinity|^TestNonStrictRequestDoesNotImplicitlyPassAffinityIdentity$' -count=1
 
 FROM calciumion/new-api:v1.0.0-rc.25
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.title="New API with Strict Session Affinity" \
+      org.opencontainers.image.source="https://github.com/powercess/caddy-session-affinity" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.created="$BUILD_DATE" \
+      io.powercess.new-api.upstream-commit="f116414284162ad15d8925f7bca494c109b83e93"
 COPY --from=build /new-api /new-api

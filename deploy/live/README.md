@@ -13,7 +13,7 @@
 
 - Base URL：亲和控制台显示的内部地址，不能填写供应商域名，也不能使用测试环境的 capture 地址。
 - Key：真实供应商 Key。网关不另存 Key，转发 new-api 按渠道协议生成的认证头。
-- 请求头覆盖：`{"X-Session-Affinity":"{client_header:X-Session-Affinity}"}`。
+- 严格模式会把已校验的 `X-Session-Affinity` 原样透传到网关出口；无需渠道请求头覆盖。
 
 客户端使用 new-api 颁发的 Token，访问 18343 入口，并携带支持的明确会话标识（例如稳定的 `X-Session-Id`）。真实供应商响应经出口网关返回 new-api，再经入口网关返回客户端，统计仍由 new-api 完成。
 

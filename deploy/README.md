@@ -57,14 +57,19 @@ new-api 每个渠道设置：
 | 无会话头上游 | http://affinity-gateway:8237/r/deepseek |
 
 严格补丁使用独立持久绑定，不依赖原版 TTL 亲和规则；未启用补丁时原版规则不能替代强保证。
-每个需要会话适配的渠道的 header_override 设置为：
+本仓库的严格 new-api 补丁会把已经校验的 `X-Session-Affinity` 原值统一放入
+发往所选渠道的请求，无需逐渠道配置 `header_override`。new-api 不解释或改写该值；
+公网出口由亲和网关消费并强制删除。未使用本仓库严格补丁的普通 new-api 不具备此保证。
+确认渠道 URL 拼接保留 /v1/...。严格补丁拒绝多 Key 渠道，不自动迁移已绑定渠道。
 
-```json
-{"X-Session-Affinity":"{client_header:X-Session-Affinity}"}
+## 使用已发布镜像
+
+```bash
+cp deploy/release.env.example deploy/release.env
+docker compose --env-file deploy/release.env -f deploy/compose.release.yaml up -d
 ```
 
-根据具体 new-api 版本在渠道设置中填入对象；这不是完整渠道 JSON。
-确认渠道 URL 拼接保留 /v1/...。严格补丁拒绝多 Key 渠道，不自动迁移已绑定渠道。
+此方式不需要本机 Go、Node 或 Bun。源码开发继续使用 `just up`。
 
 ## 更新站点配置
 
