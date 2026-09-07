@@ -32,9 +32,10 @@ jobs:
         working-directory: web
       - run: docker build --target unit -f deploy/new-api/Dockerfile -t affinity-new-api-unit:release deploy/new-api
 
-  publish:
+  build:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -42,15 +43,41 @@ jobs:
           - image: caddy-session-affinity-gateway
             context: .
             file: deploy/Dockerfile
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: caddy-session-affinity-gateway
+            context: .
+            file: deploy/Dockerfile
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
           - image: caddy-session-affinity-console
             context: .
             file: deploy/console/Dockerfile
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: caddy-session-affinity-console
+            context: .
+            file: deploy/console/Dockerfile
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
           - image: caddy-session-affinity-new-api
             context: deploy/new-api
             file: deploy/new-api/Dockerfile
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - image: caddy-session-affinity-new-api
+            context: deploy/new-api
+            file: deploy/new-api/Dockerfile
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -61,25 +88,72 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/powercess/${{ matrix.image }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=ghcr.io/powercess/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            REVISION=${{ github.sha }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+          provenance: mode=max
+          sbom: true
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - caddy-session-affinity-gateway
+          - caddy-session-affinity-console
+          - caddy-session-affinity-new-api
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/powercess/${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            REVISION=${{ github.sha }}
-            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
-          provenance: mode=max
-          sbom: true
+      - name: Create multi-platform manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/powercess/${{ matrix.image }}@sha256:%s ' *)
+      - name: Inspect image
+        run: docker buildx imagetools inspect ghcr.io/powercess/${{ matrix.image }}:${{ steps.meta.outputs.version }}

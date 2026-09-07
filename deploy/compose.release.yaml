@@ -2,7 +2,7 @@ name: session-affinity
 
 services:
   affinity-gateway:
-    image: ghcr.io/powercess/caddy-session-affinity-gateway:${AFFINITY_VERSION:-v0.1.0}
+    image: ghcr.io/powercess/caddy-session-affinity-gateway:${AFFINITY_VERSION:-v0.1.1}
     restart: unless-stopped
     environment:
       SESSION_AFFINITY_SECRET: ${SESSION_AFFINITY_SECRET:?Set SESSION_AFFINITY_SECRET}
@@ -26,7 +26,7 @@ services:
     cap_drop: ["ALL"]
 
   console:
-    image: ghcr.io/powercess/caddy-session-affinity-console:${AFFINITY_VERSION:-v0.1.0}
+    image: ghcr.io/powercess/caddy-session-affinity-console:${AFFINITY_VERSION:-v0.1.1}
     restart: unless-stopped
     ports:
       - "${AFFINITY_BIND:-0.0.0.0}:${AFFINITY_CONSOLE_PORT:-18342}:80"
@@ -42,7 +42,7 @@ services:
     cap_drop: ["ALL"]
 
   new-api:
-    image: ghcr.io/powercess/caddy-session-affinity-new-api:${AFFINITY_VERSION:-v0.1.0}
+    image: ghcr.io/powercess/caddy-session-affinity-new-api:${AFFINITY_VERSION:-v0.1.1}
     restart: unless-stopped
     environment:
       SQL_DSN: postgres://affinity:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/affinity?sslmode=disable
