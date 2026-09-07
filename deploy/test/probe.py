@@ -5,8 +5,9 @@ import urllib.request
 import uuid
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-key = os.environ.get("TEST_API_KEY")
+key = os.environ.get("TEST_API_KEY") or (Path("/artifacts/token").read_text().strip() if Path("/artifacts/token").exists() else "")
 if not key:
     raise SystemExit("Set TEST_API_KEY after initializing the isolated new-api; see deploy/README.md")
 

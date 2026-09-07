@@ -81,3 +81,20 @@ index a112fb8..6e25324 100644
  	if channelID <= 0 {
  		return
  	}
+diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
+index d683d46..d3c9d0a 100644
+--- a/relay/channel/api_request.go
++++ b/relay/channel/api_request.go
+@@ -290,6 +290,12 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]
+ 
+ 		headerOverride[key] = value
+ 	}
++	// Strict affinity has already validated this private gateway identity. Keep
++	// it opaque to new-api and forward the exact value to the selected channel.
++	// Applying this last prevents per-channel overrides from rewriting it.
++	if c != nil && c.Request != nil && c.GetBool("strict_affinity") {
++		headerOverride["x-session-affinity"] = c.Request.Header.Get("X-Session-Affinity")
++	}
+ 	return headerOverride, nil
+ }
+ 

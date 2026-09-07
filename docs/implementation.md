@@ -33,12 +33,10 @@ credentials; new-api remains responsible for authentication. Credential rotation
 changes namespace. Keep the same secret across instances and restarts; changing
 it resets affinity. This deterministic implementation needs no store or TTL.
 
-Configure new-api's request_header affinity key as X-Session-Affinity. On every
-channel routed through the outbound proxy set header_override to:
-
-```json
-{"X-Session-Affinity":"{client_header:X-Session-Affinity}"}
-```
+The pinned strict new-api patch validates X-Session-Affinity for routing and
+copies that exact opaque value into its selected-channel request. Per-channel
+header_override configuration is not required and cannot replace the value in
+strict mode. The outbound gateway consumes and removes it before public egress.
 
 Set channel base_url to http://127.0.0.1:8237/r/opencode-a (or the appropriate
 private-network service address). Verify actual path joining for each adapter.

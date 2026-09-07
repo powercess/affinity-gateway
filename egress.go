@@ -25,9 +25,10 @@ import (
 )
 
 type Supplier struct {
-	ID        string    `json:"id"`
-	Origin    string    `json:"origin"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string      `json:"id"`
+	Origin    string      `json:"origin"`
+	Plugins   []PluginRef `json:"plugins,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 type supplierView struct {
@@ -90,7 +91,8 @@ func (s *supplierRegistry) configure(path string) error {
 	next := make(map[string]Supplier, len(rows))
 	for _, row := range rows {
 		origin, err := normalizeOrigin(row.Origin)
-		if !validSupplierID(row.ID) || err != nil || next[row.ID].ID != "" {
+		pluginErr := validatePluginChain(row.Plugins)
+		if !validSupplierID(row.ID) || err != nil || pluginErr != nil || next[row.ID].ID != "" {
 			return fmt.Errorf("invalid supplier %q", row.ID)
 		}
 		row.Origin = origin
@@ -150,6 +152,9 @@ func (s *supplierRegistry) add(row Supplier) error {
 	if err != nil {
 		return err
 	}
+	if err := validatePluginChain(row.Plugins); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.rows[row.ID]; ok {
@@ -159,6 +164,27 @@ func (s *supplierRegistry) add(row Supplier) error {
 	s.rows[row.ID] = row
 	if err := s.persistLocked(); err != nil {
 		delete(s.rows, row.ID)
+		return err
+	}
+	return nil
+}
+
+func (s *supplierRegistry) updatePlugins(id string, plugins []PluginRef) error {
+	if err := validatePluginChain(plugins); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row, ok := s.rows[id]
+	if !ok {
+		return os.ErrNotExist
+	}
+	previous := append([]PluginRef(nil), row.Plugins...)
+	row.Plugins = append([]PluginRef(nil), plugins...)
+	s.rows[id] = row
+	if err := s.persistLocked(); err != nil {
+		row.Plugins = previous
+		s.rows[id] = row
 		return err
 	}
 	return nil
@@ -232,7 +258,31 @@ func (e *Egress) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 	target, _ := url.Parse(supplier.Origin)
 	var randomID [16]byte
 	_, _ = rand.Read(randomID[:])
-	event := Observation{ID: hex.EncodeToString(randomID[:]), At: time.Now().UTC(), Mode: "outbound", Profile: supplier.ID, Policy: "transparent", Session: fingerprint(e.secret, r.Header.Get(internalHeader)), Before: observedHeaders(r, e.secret)}
+	affinityValues := r.Header.Values(internalHeader)
+	affinity := r.Header.Get(internalHeader)
+	policy := "transparent"
+	if len(supplier.Plugins) > 0 {
+		policy = supplier.Plugins[0].ID + "@" + supplier.Plugins[0].Version
+	}
+	event := Observation{ID: hex.EncodeToString(randomID[:]), At: time.Now().UTC(), Mode: "outbound", Profile: supplier.ID, Policy: policy, Session: fingerprint(e.secret, affinity), Before: observedHeaders(r, e.secret)}
+	for _, plugin := range supplier.Plugins {
+		if len(affinityValues) != 1 {
+			writeEgressFailure(w, http.StatusBadRequest, "affinity_internal_invalid", "Missing or invalid internal session identity")
+			event.Status, event.Error, event.After = http.StatusBadRequest, "affinity_internal_invalid", observedHeaders(r, e.secret)
+			observations.add(event)
+			return nil
+		}
+		mutation, err := buildPluginMutation(plugin, e.secret, supplier.ID, affinity)
+		if err != nil || applyMutation(r.Header, mutation) != nil {
+			writeEgressFailure(w, http.StatusBadGateway, "affinity_plugin_failed", "Required supplier adapter failed")
+			event.Status, event.Error, event.After = http.StatusBadGateway, "affinity_plugin_failed", observedHeaders(r, e.secret)
+			observations.add(event)
+			return nil
+		}
+	}
+	// Internal routing identity must never leave the affinity gateway, including
+	// transparent bindings without an adapter.
+	r.Header.Del(internalHeader)
 	event.After = observedHeaders(r, e.secret)
 	recorder := caddyhttp.NewResponseRecorder(w, nil, nil)
 	proxy := httputil.NewSingleHostReverseProxy(target)
@@ -249,6 +299,14 @@ func (e *Egress) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.H
 	}
 	observations.add(event)
 	return nil
+}
+
+func writeEgressFailure(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Affinity-Error", code)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"type": "invalid_request_error", "code": code, "message": message}})
 }
 
 func sameOrigin(r *http.Request) bool {
@@ -274,4 +332,25 @@ func decodeSupplier(r *http.Request) (Supplier, error) {
 		return row, errors.New("expected one JSON object")
 	}
 	return row, nil
+}
+
+func decodePlugins(r *http.Request) ([]PluginRef, error) {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		return nil, errors.New("content type must be application/json")
+	}
+	var input struct {
+		Plugins []PluginRef `json:"plugins"`
+	}
+	d := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&input); err != nil {
+		return nil, err
+	}
+	if input.Plugins == nil {
+		return nil, errors.New("plugins is required")
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		return nil, errors.New("expected one JSON object")
+	}
+	return input.Plugins, nil
 }

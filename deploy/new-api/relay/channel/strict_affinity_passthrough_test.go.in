@@ -1,0 +1,51 @@
+package channel
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+func TestStrictAffinityPassesValidatedIdentityWithoutChannelConfiguration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	want := "sa:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	ctx.Request.Header.Set("X-Session-Affinity", want)
+	ctx.Set("strict_affinity", true)
+
+	headers, err := processHeaderOverride(&relaycommon.RelayInfo{}, ctx)
+	require.NoError(t, err)
+	require.Equal(t, want, headers["x-session-affinity"])
+}
+
+func TestStrictAffinityIdentityCannotBeRewrittenByChannelOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	want := "sa:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	ctx.Request.Header.Set("X-Session-Affinity", want)
+	ctx.Set("strict_affinity", true)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{HeadersOverride: map[string]any{
+		"X-Session-Affinity": "tampered",
+	}}}
+
+	headers, err := processHeaderOverride(info, ctx)
+	require.NoError(t, err)
+	require.Equal(t, want, headers["x-session-affinity"])
+}
+
+func TestNonStrictRequestDoesNotImplicitlyPassAffinityIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("X-Session-Affinity", "untrusted")
+
+	headers, err := processHeaderOverride(&relaycommon.RelayInfo{}, ctx)
+	require.NoError(t, err)
+	require.NotContains(t, headers, "x-session-affinity")
+}

@@ -135,11 +135,12 @@ func (h Handler) observeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 }
 
 // Console serves bounded process-local observations. Deploy on an internal
-// listener with TLS at the access boundary. Authentication is mandatory.
+// listener with TLS at the access boundary. Only AFFINITY_TEST=true disables authentication.
 type Console struct {
-	PasswordEnv string `json:"password_env,omitempty"`
-	ConfigEnv   string `json:"config_env,omitempty"`
-	password    string
+	PasswordEnv     string `json:"password_env,omitempty"`
+	ConfigEnv       string `json:"config_env,omitempty"`
+	password        string
+	testEnvironment bool
 }
 
 func (Console) CaddyModule() caddy.ModuleInfo {
@@ -172,7 +173,8 @@ func (c *Console) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 }
 func (c *Console) Provision(caddy.Context) error {
 	c.password = os.Getenv(c.PasswordEnv)
-	if len(c.password) < 32 {
+	c.testEnvironment = os.Getenv("AFFINITY_TEST") == "true"
+	if !c.testEnvironment && len(c.password) < 32 {
 		return fmt.Errorf("affinity_console password env must contain at least 32 bytes")
 	}
 	if c.ConfigEnv != "" {
@@ -185,9 +187,13 @@ func (c *Console) Provision(caddy.Context) error {
 func (c *Console) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.Handler) error {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if r.URL.Path == "/api/auth" && r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		return json.NewEncoder(w).Encode(map[string]bool{"required": !c.testEnvironment})
+	}
 	user, password, ok := r.BasicAuth()
 	provided, expected := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(c.password))
-	if !ok || user != "admin" || subtle.ConstantTimeCompare(provided[:], expected[:]) != 1 || len(c.password) < 32 {
+	if !c.testEnvironment && (!ok || user != "admin" || subtle.ConstantTimeCompare(provided[:], expected[:]) != 1 || len(c.password) < 32) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Affinity", charset="UTF-8"`)
 		http.Error(w, "Unauthorized", 401)
 		return nil
@@ -258,6 +264,36 @@ func (c *Console) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 		return json.NewEncoder(w).Encode(map[string]any{"items": suppliers.list()})
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/suppliers/") {
+			if strings.HasSuffix(r.URL.Path, "/plugins") {
+				if r.Method != http.MethodPut {
+					w.Header().Set("Allow", "PUT")
+					http.Error(w, "Method not allowed", 405)
+					return nil
+				}
+				if !sameOrigin(r) {
+					http.Error(w, "Invalid origin", 403)
+					return nil
+				}
+				id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/suppliers/"), "/plugins")
+				if !validSupplierID(id) {
+					http.NotFound(w, r)
+					return nil
+				}
+				plugins, err := decodePlugins(r)
+				if err != nil {
+					http.Error(w, "Invalid plugins", 400)
+					return nil
+				}
+				if err = suppliers.updatePlugins(id, plugins); errors.Is(err, os.ErrNotExist) {
+					http.NotFound(w, r)
+					return nil
+				} else if err != nil {
+					http.Error(w, err.Error(), 409)
+					return nil
+				}
+				w.Header().Set("Content-Type", "application/json")
+				return json.NewEncoder(w).Encode(map[string]any{"items": suppliers.list()})
+			}
 			if r.Method != http.MethodDelete {
 				w.Header().Set("Allow", "DELETE")
 				http.Error(w, "Method not allowed", 405)

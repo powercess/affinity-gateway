@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
@@ -163,4 +165,63 @@ func TestConsoleAuthAndSSE(t *testing.T) {
 		t.Fatal(line, err)
 	}
 	cancel()
+}
+
+func TestConsoleEnvironmentAuth(t *testing.T) {
+	for _, env := range []string{"", "false", "invalid", "TRUE", "true"} {
+		t.Run("env="+env, func(t *testing.T) {
+			t.Setenv("AFFINITY_TEST", env)
+			t.Setenv("TEST_CONSOLE_PASSWORD", "")
+			c := Console{PasswordEnv: "TEST_CONSOLE_PASSWORD"}
+			if err := c.Provision(caddy.Context{}); (err == nil) != (env == "true") {
+				t.Fatalf("unexpected provisioning result: %v", err)
+			}
+			t.Setenv("TEST_CONSOLE_PASSWORD", strings.Repeat("p", 32))
+			if err := c.Provision(caddy.Context{}); err != nil {
+				t.Fatal(err)
+			}
+			w := httptest.NewRecorder()
+			_ = c.ServeHTTP(w, httptest.NewRequest("GET", "/api/auth", nil), nil)
+			var mode struct {
+				Required bool `json:"required"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &mode); err != nil || mode.Required != (env != "true") {
+				t.Fatal(w.Body.String())
+			}
+			for _, path := range []string{"/api/observations", "/api/suppliers"} {
+				w = httptest.NewRecorder()
+				_ = c.ServeHTTP(w, httptest.NewRequest("GET", path, nil), nil)
+				expected := 401
+				if env == "true" {
+					expected = 200
+				}
+				if w.Code != expected {
+					t.Fatalf("%s: got %d, want %d", path, w.Code, expected)
+				}
+			}
+		})
+	}
+}
+
+func TestConsoleUpdatesExistingBindingPlugins(t *testing.T) {
+	original := suppliers
+	suppliers = &supplierRegistry{path: filepath.Join(t.TempDir(), "suppliers.json"), rows: map[string]Supplier{
+		"go-main": {ID: "go-main", Origin: "https://opencode.ai", CreatedAt: time.Now().UTC()},
+	}}
+	defer func() { suppliers = original }()
+	c := Console{testEnvironment: true}
+	body := `{"plugins":[{"id":"opencode-go-session","version":"1.0.0"}]}`
+	r := httptest.NewRequest(http.MethodPut, "/api/suppliers/go-main/plugins", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	if err := c.ServeHTTP(w, r, nil); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("plugin update failed: %v %d %s", err, w.Code, w.Body.String())
+	}
+	got := suppliers.list()
+	if len(got) != 1 || len(got[0].Plugins) != 1 || got[0].Plugins[0].ID != opencodeGoSessionPlugin {
+		t.Fatalf("plugin not applied: %#v", got)
+	}
+	if got[0].Origin != "https://opencode.ai" {
+		t.Fatal("origin changed during plugin update")
+	}
 }

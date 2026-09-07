@@ -9,6 +9,7 @@ import runpy
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 BASE = "http://new-api:3000"
 USER = "affinitytest"
@@ -64,8 +65,7 @@ for route, model in [("opencode-a", "affinity-test"), ("opencode-b", "affinity-t
             "models": ("affinity-test,gpt-4.1,gpt-4.1-mini,gpt-5.2,gpt-5.4-nano,kimi-for-coding" if model == "affinity-test" else
                        "claude-sonnet-4-6,claude-haiku-4-5,claude-haiku-4-5-20251001" if model.startswith("claude-") else model),
             "group": "default", "priority": 0, "weight": 1,
-            "header_override": json.dumps({"X-Session-Affinity": "{client_header:X-Session-Affinity}",
-                                           "X-Test-Request-Id": "{client_header:X-Test-Request-Id}"})}
+            "header_override": json.dumps({"X-Test-Request-Id": "{client_header:X-Test-Request-Id}"})}
     if name not in existing:
         api("/api/channel/", {"mode": "single", "channel": channel})
     else:
@@ -83,11 +83,12 @@ os.environ["TEST_API_KEY"] = value["key"] if isinstance(value, dict) else value
 print("Seed ready: isolated admin, five mock channels, affinity rule and test token (credentials omitted)")
 # This version asynchronously refreshes the channel cache after creation.
 # Wait only during setup; the actual probe has no retry that could mask failures.
+readiness_session = "seed-readiness-" + str(uuid.uuid4())
 for attempt in range(36):
     req = urllib.request.Request("http://affinity-gateway:8236/v1/chat/completions",
         data=json.dumps({"model": "affinity-test", "messages": [{"role": "user", "content": "ready"}]}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ["TEST_API_KEY"],
-                 "X-Session-Id": "seed-readiness"})
+                 "X-Session-Id": readiness_session})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             json.load(response)
