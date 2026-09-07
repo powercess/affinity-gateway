@@ -45,12 +45,14 @@ inference(None)
 base = 'http://console'
 with urllib.request.urlopen(base + '/', timeout=10) as response:
     assert b'<div id="root">' in response.read()
+with urllib.request.urlopen(base + '/api/auth', timeout=10) as response:
+    auth_required = json.load(response)['required']
 try:
     urllib.request.urlopen(base + '/api/observations', timeout=10)
 except urllib.error.HTTPError as error:
-    assert error.code == 401
+    assert auth_required and error.code == 401
 else:
-    raise AssertionError('unauthenticated API')
+    assert not auth_required, 'unauthenticated API'
 password = os.environ.get('AFFINITY_CONSOLE_PASSWORD', 'affinity-local-console-development')
 headers = {'Authorization': 'Basic ' + base64.b64encode(('admin:' + password).encode()).decode()}
 with urllib.request.urlopen(urllib.request.Request(base + '/api/observations', headers=headers), timeout=10) as response:

@@ -5,8 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 import LiveConsole from "./LiveConsole";
 afterEach(() => vi.unstubAllGlobals());
 describe("gateway data connection", () => {
-  it("does not fetch before authentication", () => {
-    const fetch = vi.fn();
+  it("only discovers auth mode before authentication", () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({required: true})));
     vi.stubGlobal("fetch", fetch);
     render(
       <MemoryRouter>
@@ -15,7 +15,8 @@ describe("gateway data connection", () => {
     );
     expect(screen.getByLabelText("访问密码")).toBeInTheDocument();
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe("/api/auth");
   });
   it("loads real snapshot and subscribes to events without retaining password", async () => {
     const setItem = vi.fn();
@@ -88,4 +89,20 @@ describe("gateway data connection", () => {
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.queryByText("demo-req-1048")).not.toBeInTheDocument();
   });
+});
+
+it("connects without credentials in the test environment", async () => {
+  const fetch = vi.fn(async (url: string) => {
+    if (url === "/api/auth") return new Response(JSON.stringify({required: false}));
+    if (url === "/api/events") return new Response(new ReadableStream(), {headers: {"Content-Type": "text/event-stream"}});
+    return new Response(JSON.stringify({items: [], revision: 1, capacity: 1000}));
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<MemoryRouter><LiveConsole /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByText("已连接")).toBeInTheDocument());
+  expect(screen.queryByLabelText("访问密码")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "退出"})).not.toBeInTheDocument();
+  for (const call of fetch.mock.calls) {
+    expect((call as unknown as [string, RequestInit])[1]?.headers ?? {}).not.toHaveProperty("Authorization");
+  }
 });

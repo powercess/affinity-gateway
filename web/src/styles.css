@@ -7,9 +7,13 @@
 .header-json { padding: 16px; border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8125rem; }
 .config-stack { display: grid; gap: 20px; }
 .supplier-form-panel { padding-bottom: 20px; }
-.supplier-form { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(280px, 1.5fr) auto; gap: 16px; align-items: end; padding: 0 20px; }
+.supplier-form { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(240px, 1.4fr) minmax(220px, 1fr) auto; gap: 16px; align-items: end; padding: 0 20px; }
 .supplier-form > div { display: grid; gap: 7px; }
 .supplier-form label { color: var(--muted-foreground); font-size: .75rem; font-weight: 500; }
+.supplier-form select { height: 40px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); padding: 0 12px; color: var(--foreground); }
+.binding-plugin-editor { display: flex; align-items: center; gap: 8px; min-width: 300px; }
+.binding-plugin-editor select { height: 36px; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); padding: 0 10px; color: var(--foreground); }
+.binding-plugin-editor button { height: 36px; }
 .supplier-form button { height: 40px; }
 @media (max-width: 800px) { .supplier-form { grid-template-columns: 1fr; } }
 @custom-variant dark (&:is(.dark *));

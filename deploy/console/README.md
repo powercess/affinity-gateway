@@ -19,7 +19,7 @@ just down             # 停止容器，保留数据卷
 
 运行 `just` 列出命令。`just docker` 传递 Compose 子命令，但固定项目与配置文件，拒绝 `down -v`，避免误删绑定与数据库。`just test` 会产生真实的模拟供应商请求和消费日志，不是只读检查。前端自己的工具链保留在 `web/`，容器内完成 Node 构建。
 
-`CONSOLE_BIND`、`CONSOLE_PORT`、`TEST_PORT`、`AFFINITY_CONSOLE_PASSWORD` 可通过环境变量覆盖，脚本默认值与下面的容器环境一致；自定义后应在各次调用中保持一致。不自动保存密码到文件。更改这些环境变量应执行 `just up` 重建容器配置，`just reload config` 不能更新容器环境变量。
+`AFFINITY_TEST`、`CONSOLE_BIND`、`CONSOLE_PORT`、`TEST_PORT`、`AFFINITY_CONSOLE_PASSWORD` 可通过环境变量覆盖，脚本默认值与下面的容器环境一致；自定义后应在各次调用中保持一致。不自动保存密码到文件。更改这些环境变量应执行 `just up` 重建容器配置，`just reload config` 不能更新容器环境变量。
 
 脚本测试：`just test-scripts`。命令失败返回非零退出码，构建失败不会继续替换运行中的容器。
 
@@ -32,7 +32,8 @@ TEST_PORT=18243 docker compose -p caddy-affinity-console \
   -f deploy/compose.test.yaml -f deploy/compose.console.yaml up -d --build
 ```
 
-- 网关控制台：`http://127.0.0.1:18242/`，访问密码 `affinity-local-console-development`。
+- 网关控制台：`http://127.0.0.1:18242/`，开发 Compose 默认 `AFFINITY_TEST=true`，无需输入访问密码。
+- 使用 `AFFINITY_TEST=false just up` 恢复控制台鉴权，密码由 `AFFINITY_CONSOLE_PASSWORD` 设置。仅精确值 `true` 免鉴权；网关进程未设置该变量时仍要求密码。模型 API 的 new-api Token 鉴权保持原有行为。
 - new-api 后台：`http://127.0.0.1:18243/`，用户名 `affinitytest`，密码 `Isolated-Affinity-Test-Only-2026`。
 - 模型 API：`http://127.0.0.1:18243/v1/`。自动生成的测试 token 保存在此项目的 `test_artifacts` 卷 `/artifacts/token`，不输出到日志。
 - `CONSOLE_PORT` 和 `TEST_PORT` 可调整端口；`AFFINITY_CONSOLE_PASSWORD` 可覆盖控制台密码。默认监听 `0.0.0.0`，其他机器使用服务器 IP 访问；设置 `CONSOLE_BIND=127.0.0.1` 可恢复仅本机访问。Compose 需支持 `!override`（2.24.4 或更新版本）。

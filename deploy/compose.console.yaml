@@ -5,6 +5,7 @@ services:
     ports: !override
       - "${CONSOLE_BIND:-0.0.0.0}:${TEST_PORT:-18243}:8236"
     environment:
+      AFFINITY_TEST: "${AFFINITY_TEST:-true}"
       AFFINITY_CONSOLE_PASSWORD: ${AFFINITY_CONSOLE_PASSWORD:-affinity-local-console-development}
       SUPPLIER_CONFIG_FILE: /var/lib/affinity/suppliers.json
     volumes:
