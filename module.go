@@ -28,6 +28,7 @@ type Handler struct {
 	Fallback          string `json:"fallback,omitempty"`
 	BodyLimit         int64  `json:"body_limit,omitempty"`
 	CacheKeyAsSession bool   `json:"cache_key_as_session,omitempty"`
+	ObserveID         string `json:"observe_id,omitempty"`
 	secret            string
 }
 
@@ -63,6 +64,9 @@ func (h *Handler) Provision(caddy.Context) error {
 	return h.Validate()
 }
 func (h *Handler) Validate() error {
+	if h.ObserveID != "" && !validID(h.ObserveID) {
+		return fmt.Errorf("invalid observe_id")
+	}
 	if h.Mode != "inbound" && h.Mode != "outbound" {
 		return fmt.Errorf("invalid mode")
 	}
@@ -110,6 +114,13 @@ func (e *affinityFailure) Error() string            { return e.message }
 func reject(status int, code, message string) error { return &affinityFailure{status, code, message} }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	if h.ObserveID != "" {
+		return h.observeHTTP(w, r, next)
+	}
+	return h.handleHTTP(w, r, next)
+}
+
+func (h Handler) handleHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	err := h.serveHTTP(w, r, next)
 	var failure *affinityFailure
 	if !errors.As(err, &failure) {
@@ -136,6 +147,14 @@ func (h Handler) readBody(r *http.Request) ([]byte, error) {
 	}
 	original := r.Body
 	b, err := io.ReadAll(io.LimitReader(original, h.BodyLimit+1))
+	if event, ok := r.Context().Value(observationKey{}).(*Observation); ok && err == nil && int64(len(b)) <= h.BodyLimit {
+		var fields struct {
+			Model string `json:"model"`
+		}
+		if json.Unmarshal(b, &fields) == nil && validID(fields.Model) {
+			event.Model = fields.Model
+		}
+	}
 	r.Body = &replayBody{Reader: io.MultiReader(bytes.NewReader(b), original), Closer: original}
 	if err != nil {
 		return nil, reject(400, "affinity_body_invalid", "Cannot read request body")
@@ -201,6 +220,9 @@ func (h Handler) serveHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 			return reject(400, "affinity_identity_conflict", "Conflicting session headers; send one stable X-Session-Id")
 		}
 		sid = values[0]
+		if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+			event.Source = name
+		}
 	}
 	b, err := h.readBody(r)
 	if err != nil {
@@ -219,12 +241,27 @@ func (h Handler) serveHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 	}
 	if sid == "" {
 		sid = meta
+		if sid != "" {
+			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+				event.Source = "metadata.user_id.session_id"
+			}
+		}
 	}
 	if sid == "" {
 		sid = bodySession(b)
+		if sid != "" {
+			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+				event.Source = "conversation"
+			}
+		}
 	}
 	if sid == "" && h.CacheKeyAsSession {
 		_ = json.Unmarshal(obj["prompt_cache_key"], &sid)
+		if sid != "" {
+			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+				event.Source = "prompt_cache_key"
+			}
+		}
 		if sid != "" && !validID(sid) {
 			return reject(400, "affinity_identity_invalid", "Invalid configured cache session identity")
 		}

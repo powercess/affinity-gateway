@@ -23,6 +23,8 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			v := args[0]
 			switch key {
+			case "observe_id":
+				h.ObserveID = v
 			case "mode":
 				h.Mode = v
 			case "secret_env":
