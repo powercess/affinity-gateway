@@ -1,4 +1,4 @@
-# Docker Compose 部署
+# Affinity Gateway · Docker Compose 部署
 
 > 当前强亲和需要 Caddy 插件与 [new-api 固定版本补丁](../docs/strict-affinity.md) 配套部署；仅接入未修改的 new-api 不提供原子、不迁移的强绑定保证。旧测试失败记录仍保留。
 

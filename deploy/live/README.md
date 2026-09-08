@@ -1,4 +1,4 @@
-# 真实供应商环境
+# Affinity Gateway · 真实供应商环境
 
 本环境没有 mock、capture 和自动 seed，不修改现有测试环境和数据库。
 

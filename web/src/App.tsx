@@ -483,7 +483,7 @@ export default function App() {
   }, [dark]);
   const page = navigation.find((n) => n.path === location.pathname);
   useEffect(() => {
-    document.title = `${page?.title ?? "页面未找到"} · Affinity`;
+    document.title = `${page?.title ?? "页面未找到"} · Affinity Gateway`;
   }, [page?.title]);
   const query = params.get("q") ?? "",
     outcome = params.get("outcome") ?? "all",
@@ -526,7 +526,7 @@ export default function App() {
             <Network size={22} />
           </div>
           <span>
-            Affinity<small>SESSION GATEWAY</small>
+            Affinity<small>GATEWAY</small>
           </span>
         </Link>
         <nav aria-label="主导航">

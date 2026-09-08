@@ -345,7 +345,7 @@ export default function LiveConsole() {
       <aside className="sidebar">
         <div className="brand">
           <Network />
-          Affinity
+          <span>Affinity<small>GATEWAY</small></span>
         </div>
         <nav aria-label="主导航">
           {nav.map(([path, title, Icon]) => (

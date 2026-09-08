@@ -1,118 +1,86 @@
-# caddy-session-affinity
+# Affinity Gateway
 
-## v0.1 快速部署
+**亲和网关 · 强会话亲和，可定制的入站与出站。**
 
-发布版包含两个核心镜像和一个可选控制台镜像：gateway、patched new-api、console。
+Affinity Gateway 是面向模型 API 中转的双向网关，基于 Caddy，配合定制 new-api 使用。从客户端会话识别、渠道持久绑定，到供应商会话字段适配，在请求进入和离开中转站时提供可配置的控制，并通过 Web 控制台查看处理结果。
+
+## 核心能力
+
+| 能力 | 当前实现 |
+|---|---|
+| **强会话亲和** | 从明确的客户端会话身份派生租户作用域标识；配套 new-api 补丁在发送前通过 SQL 原子确定渠道，持久绑定，不自动迁移 |
+| **入站定制** | 按入口配置会话头的识别与移除、metadata 来源、严格 JSON 校验或仅请求头校验；支持草稿预览，保存后对后续请求生效 |
+| **出站适配** | 管理“出口 ID → HTTPS Origin”映射，为 new-api 生成内部 Base URL；选择已支持的供应商插件，派生会话头及已声明的 body 会话／缓存字段 |
+| **可观测控制台** | 查看入口与出口处理事件、会话指纹、规则版本和脱敏头部，通过 SSE 获取更新；管理入站规则与出口配置 |
+
+定制能力的具体字段与范围见 [入站规则及管理 API](docs/observability.md)、[供应商配置](docs/configuration.md) 和 [Caddyfile 示例](configs/Caddyfile.example)。
+
+## 请求如何经过网关
+
+```text
+客户端：稳定、明确的会话标识
+    │
+    ▼
+Affinity Gateway · 入站
+    识别与校验 → 租户作用域 HMAC → X-Session-Affinity
+    │
+    ▼
+定制 new-api
+    鉴权与计费 → SQL 原子渠道绑定 → 协议适配
+    │
+    ▼
+Affinity Gateway · 出站
+    出口映射 → 供应商插件 → 移除内部亲和标识
+    │
+    ▼
+模型供应商
+```
+
+响应沿原链路返回。控制台连接网关管理 API，配置规则并观察各处理阶段；渠道持久绑定由 new-api 的 SQL 存储负责。
+
+### 亲和保证的边界
+
+- 强绑定需要网关与 **[固定版本 new-api 补丁](docs/strict-affinity.md)** 配套部署；仅运行 Caddy 插件不足以提供完整保证。
+- 绑定限定在认证 token、会话、明确分组、请求模型的作用域内，当前支持单 key 的 type 1/14 渠道。不同模型可以分别绑定。
+- 缺失、非法或冲突的会话身份会被拒绝；存储或绑定渠道异常时失败关闭，不自动切换渠道。不提供内容哈希或凭据兜底的[软亲和](docs/soft-affinity-deferred.md)。
+- 出站只改写已声明支持的会话／缓存字段，不改写供应商资源引用，也不承诺供应商真实缓存命中率。
+- 观测保留进程内最近 1000 条已完成事件，重启清空；每条记录对应一个处理阶段。持久历史、完整跨阶段请求追踪及 WebSocket 采集尚未实现。
+
+## 快速部署
+
+发布编排包含网关、定制 new-api、控制台、PostgreSQL 和 Redis。
 
 ```bash
 cp deploy/release.env.example deploy/release.env
-# 替换文件中的所有 secret
+# 编辑 deploy/release.env，替换所有 secret 并设置控制台密码
 docker compose --env-file deploy/release.env -f deploy/compose.release.yaml up -d
 ```
 
-默认入口：模型 API `:18343`，控制台 `:18342`。new-api、PostgreSQL、Redis 和
-网关出口只存在于 Compose 内网。完整说明见 [部署](docs/deployment.md)、
-[配置](docs/configuration.md) 和 [安全边界](docs/security.md)。
+默认模型 API 入口为 `:18343`，控制台为 `:18342`。new-api、PostgreSQL、Redis、网关出口与管理 API 只在 Compose 内网访问。公网部署的 HTTPS 与访问限制见 [部署说明](docs/deployment.md) 和 [安全边界](docs/security.md)。
 
-Docker Compose 已提供：[部署指南](deploy/README.md)。生产编排接入已有 new-api；
-隔离测试编排包含独立 new-api、Postgres、Redis 和 mock 上游，并提供自动初始化与探针。
+启动后：
 
-当前实施 [强亲和方案](docs/strict-affinity.md)：显式身份、SQL 原子持久绑定、禁止自动渠道迁移；[软亲和](docs/soft-affinity-deferred.md) 只保留设计，不实现。
-最新 [6 种 Harness 强亲和测试报告](docs/strict-harness-report.md)：含 pi、Qwen Code、Kimi CLI；直连 92/92，严格入口明确区分成功/拒绝/恢复阻断，专用契约入口 24/24，160 个并发请求无渠道漂移。
-原版行为与缺陷记录见 [初次 E2E](docs/harness-e2e-report.md)、[第一轮协议矩阵](docs/provider-matrix-report.md)，不能把历史结果当作当前保证。
+1. 登录控制台，在“配置”中添加出口 ID、真实供应商 HTTPS Origin，并选择需要的供应商插件。
+2. 在 new-api 创建单 key 渠道，填写控制台生成的内部 Base URL、供应商 Key、明确分组及模型。
+3. 客户端使用 new-api 颁发的 Token，并为每个会话携带稳定标识，例如 `X-Session-Id`；新会话使用新值，同一会话与重试保持不变。
 
-基于 **Caddy** 的轻量会话亲和网关,置于 **new-api** 中转站前后,用插件方式接管入站/出站请求头,实现:
+完整步骤见 [真实供应商环境](deploy/live/README.md)。接入已有 new-api 见 [Docker Compose 部署](deploy/README.md)。
 
-- **入站**：将可靠的原生会话标识派生为内部 `X-Session-Affinity`；缺失、冲突或无法检查时明确拒绝。
-- **调度**：配套 new-api 补丁在发送前原子确定渠道，固定到单 key 渠道，存储或绑定渠道异常时失败关闭。
-- **出站**：按供应商配置派生会话头和已声明的 body 会话/缓存字段；不改写供应商资源引用，不承诺真实缓存命中率。
+## 本地开发
 
-当前配置与保证边界以 [强亲和契约](docs/strict-affinity.md) 和 [配置示例](configs/Caddyfile.example) 为准。以下动机保留早期讨论背景；不推断任意客户端都具有可用会话标识。
-
----
-
-## 动机
-
-| 问题 | 影响 |
-|---|---|
-| opencode.ai 自 2026-09-06 强制要求 `x-opencode-session`(每个会话一个稳定 ID),缺失将报错 | 客户端(omp / Hermes / AI SDK 系)普遍不发送该头,直连与经中转均缺 |
-| new-api 渠道亲和粒度不足 | 无会话标识的客户端(Hermes 等)落到 `token_id` 兜底,会话级亲和失效 |
-| new-api 转发时默认剥离客户端请求头 | 即使入站带上了会话头,出站也带不到上游 |
-
-核心结论(经实测,详见 [docs/experiments.md](docs/experiments.md)):
-
-1. **new-api 原生支持 `request_header` 亲和键**(`x-opencode-session` / `X-Session-Id` 作为 key_source 真实生效),也支持 `gjson` 从 body 提取 `metadata.user_id` / `user`;
-2. **new-api 不能"生成"会话 ID**——会话 ID 只能由客户端或中间代理生成；本仓库严格补丁仅原样透传已验证的内部标识；
-3. **原版 new-api 默认不透传客户端头**——本仓库严格补丁只对 `X-Session-Affinity` 建立统一透传保证，其余头仍按原版规则处理。
-
-因此标识规范化与供应商适配由 Caddy 负责，强渠道绑定由固定版本 new-api 补丁负责；不再以零 fork 为目标。
-
----
-
-## 架构一览
-
-```
-客户端(omp / Hermes / RikkaHub / Claude Code / ...)
-        │  https://new-api.powercess.com
-        ▼
-┌───────────────────────────────┐
-│  Caddy 入站代理 (:8236)       │  显式身份 → 租户作用域 HMAC
-│  caddy-session-affinity 插件  │  X-Session-Affinity；缺失则拒绝
-└───────────────┬───────────────┘
-                ▼
-        new-api (:8235)         ← 严格补丁：原子 SQL 绑定，不自动迁移
-        │  出站(默认剥客户端头)
-        ▼
-┌───────────────────────────────┐
-│  Caddy 出站代理                │  按供应商适配/剥离请求头(可选增强)
-│  caddy-session-affinity 插件  │
-└───────────────┬───────────────┘
-                ▼
-  opencode.ai / DeepSeek / 火山方舟
-```
-
-部署约束见 [docs/strict-affinity.md](docs/strict-affinity.md)。
-
----
-
-## 文档索引
-
-| 文档 | 内容 |
-|---|---|
-| [强亲和契约](docs/strict-affinity.md) | 当前实现、字段、原子绑定、失败策略、部署边界 |
-| [软亲和备忘](docs/soft-affinity-deferred.md) | 暂缓实施的内容指纹方案 |
-| [docs/architecture.md](docs/architecture.md) | 架构设计、外部代理如何托管 new-api 入站/出站、出站接管机制、三种部署模式、供应商适配策略 |
-| [docs/testing.md](docs/testing.md) | **测试环境与亲和验证方案**:拓扑、harness 矩阵、断言口径、docker-compose、CI |
-| [docs/development.md](docs/development.md) | 开发指南:模块划分、Caddy 插件规范(xcaddy)、Caddyfile 写法、实现路线 |
-| [docs/experiments.md](docs/experiments.md) | 实验与测试记录:new-api 亲和、透传、会话稳定性的实测结论 |
-
----
-
-## 快速上手
-
-> 配套构建与测试使用 deploy/compose.test.yaml；接入现有 new-api 见 deploy/README.md。仅构建下面的 Caddy 不等于部署了强绑定。
+整套隔离联调环境包含控制台、网关、定制 new-api、数据库和模拟供应商：
 
 ```bash
-# 构建带插件的 Caddy(示例)
-xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=.
-
-# 用 Caddyfile 启动入站代理
-./caddy run --config configs/Caddyfile.example
+just up           # 构建并启动
+just status       # 查看状态
+just reload       # 重建前端与网关
+just test         # 运行容器链路检查
+just down         # 停止并保留数据卷
 ```
 
-示例配置见 [docs/development.md](docs/development.md) 的 Caddyfile 章节。
+详见 [容器联调说明](deploy/console/README.md)。运行 `just` 查看全部命令。
 
----
-
-## 状态
-
-### 亲和控制台
-
-整套 Docker 联调环境（控制台 + 网关 + new-api + 数据库 + 测试供应商）见 [容器启动说明](deploy/console/README.md)。
-
-日常管理使用 just + Bash：`just up`、`just status`、`just reload`、`just test`。运行 `just` 列出全部命令；环境管理不依赖宿主机 Node/Bun。
-
-前端位于 [web/](web/README.md)，采用 React / Vite / shadcn/ui。已接入带认证的网关观测 API 和 SSE；原型保留在 `?demo=1#/`。采集配置、保留范围及当前限制见 [观测接口](docs/observability.md)。WebSocket 采集尚未实现。
+只开发控制台：
 
 ```bash
 cd web
@@ -120,14 +88,33 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-预览仅监听本机，访问 `http://127.0.0.1:18240/`。运行 `bun run test` 和 `bun run build` 可校验原型。
+默认访问 `http://127.0.0.1:18240/`，开发服务器代理网关管理 API。`bun run check` 运行测试、类型检查与生产构建。真实界面为默认入口，`?demo=1#/` 保留演示原型。详见 [控制台开发](web/README.md)。
 
-### 网关
+单独构建 Caddy 插件：
 
-- [x] GitHub 仓库创建(`powercess/caddy-session-affinity`)
-- [x] 架构/开发/测试/实验文档
-- [x] 第一版插件实现（显式会话 + 出站策略；真实 new-api/供应商联调待完成）
-- [x] Docker 镜像与部署/隔离测试 Compose（见 deploy/README.md）
-# 真实供应商部署
+```bash
+xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=.
+./caddy run --config configs/Caddyfile.example
+```
 
-完整网关、new-api、数据库与控制台编排见 [真实供应商环境](deploy/live/README.md)。使用 `just live up` 启动，在控制台配置真实出口供应商；环境与原有模拟测试环境相互独立。
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [强亲和契约](docs/strict-affinity.md) | 身份、原子绑定、失败策略与部署边界 |
+| [配置](docs/configuration.md) | 供应商插件、渠道 Base URL 与客户端会话标识 |
+| [观测与规则 API](docs/observability.md) | 入站规则、草稿预览、出口管理、事件与数据保留 |
+| [部署](docs/deployment.md) | 发布镜像、启动方式与持久数据 |
+| [安全边界](docs/security.md) | 网络、凭证与管理访问 |
+| [架构](docs/architecture.md) | 双向代理、供应商适配与部署模式 |
+| [开发指南](docs/development.md) | Caddy 模块与配置开发 |
+| [强亲和测试报告](docs/strict-harness-report.md) | 六种 Harness 的验证结果与测试范围 |
+| [测试方案](docs/testing.md) | 隔离环境、协议矩阵与验证方法 |
+
+早期动机与实验保留在 [实验记录](docs/experiments.md)、[初次 E2E](docs/harness-e2e-report.md) 和 [协议矩阵](docs/provider-matrix-report.md)。历史结果不代表当前保证；运行行为以当前实现、配置与强亲和契约为准。
+
+## 项目名称与兼容性
+
+项目名称为 **Affinity Gateway（亲和网关）**，原名 `caddy-session-affinity`。Caddy 是网关的底层实现。
+
+现有仓库地址与 Go 模块路径 `github.com/powercess/caddy-session-affinity`、已发布镜像前缀 `ghcr.io/powercess/caddy-session-affinity-*` 继续沿用。Caddy 指令 `session_affinity`、`affinity_console`、配置环境变量和协议头名称保持兼容，现有构建与部署命令无需因产品更名而调整。

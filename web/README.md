@@ -1,4 +1,4 @@
-# Affinity Console
+# Affinity Gateway 控制台
 
 默认入口使用 `LiveConsole.tsx`，连接网关快照 API 与 SSE，支持认证、重新连接、配置/会话分组、请求查询和头部详情。查询失败不会回退到演示数据。网关配置和数据合同见 [观测接口](../docs/observability.md)。
 
