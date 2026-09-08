@@ -39,3 +39,23 @@ test-scripts:
 # 管理真实供应商环境（独立于模拟测试环境）
 live action="status":
     @bash scripts/live.sh "$1"
+
+# 安装前端依赖（按锁文件）
+web-install:
+    cd web && bun install --frozen-lockfile
+
+# 启动前端热更新开发服务（127.0.0.1:18240）
+web-dev:
+    cd web && bun run dev
+
+# 前端测试、类型检查和生产构建
+web-check:
+    cd web && bun run check
+
+# 构建前端静态文件
+web-build:
+    cd web && bun run build
+
+# 前端测试监听模式
+web-test-watch:
+    cd web && bun run test:watch

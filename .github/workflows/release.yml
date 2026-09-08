@@ -19,16 +19,19 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
+          bun-version-file: .bun-version
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('.bun-version', 'web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
         working-directory: web
-      - run: npm test -- --run
+      - run: bun run test
         working-directory: web
-      - run: npm run build
+      - run: bun run build
         working-directory: web
       - run: docker build --target unit -f deploy/new-api/Dockerfile -t affinity-new-api-unit:release deploy/new-api
 

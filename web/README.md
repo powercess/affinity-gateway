@@ -6,7 +6,22 @@
 
 ## 运行
 
-在 `web/` 下执行 `npm ci`，然后 `npm run dev -- --port 18240 --strictPort`。仅监听 `127.0.0.1`，不改变现有 Docker 测试环境。`npm run build` 进行 TypeScript 校验并生成 `dist/`；`npm test` 运行数据和交互测试。
+在 `web/` 下执行 `bun install --frozen-lockfile`，然后 `bun run dev`。仅监听 `127.0.0.1`，不改变现有 Docker 测试环境。`bun run build` 进行 TypeScript 校验并生成 `dist/`；`bun run test` 运行数据和交互测试。
+
+
+Bun 固定为 **1.4.0**（根目录 `.bun-version`），本地、CI 和前端构建镜像使用同一版本。依赖只维护 `bun.lock`；添加依赖使用 `bun add`，安装使用 `bun install --frozen-lockfile`。
+
+在仓库根目录可以使用：
+
+- `just web-install`：安装锁定依赖。
+- `just web-dev`：启动热更新开发服务，默认代理网关 `127.0.0.1:18242`。
+- `just web-check`：依次运行测试、类型检查和生产构建。
+- `just web-build`：类型检查并构建静态文件。
+- `just web-test-watch`：修改代码后自动重跑相关测试。
+
+也可以在 `web/` 运行对应的 `bun run` 脚本。使用 `bun run test`，不要使用 `bun test`：本项目的测试依赖 Vitest 和 jsdom。脚本通过 `--bun` 显式使用 Bun 运行 Vite、TypeScript 和 Vitest。`bun run preview` 可预览构建产物；与开发服务使用同一端口，需要先停止开发服务。
+
+Docker 将依赖安装与源码构建分层，并缓存 Bun 下载目录。Go/Caddy 继续使用 Go 工具链；测试 harness 中第三方 CLI 的 Node/Python 环境保持各自要求。
 
 技术栈：React / TypeScript / Vite、官方 shadcn/ui（Radix）组件、Tailwind CSS、Recharts、TanStack Table、React Router。使用 hash 路由，让静态托管下的详情链接可直接打开。官方组件通过 shadcn CLI 获取，保留其依赖与锁文件。
 

@@ -9,11 +9,11 @@ COPY middleware/strict_affinity.go.in middleware/strict_affinity.go
 COPY controller/strict_affinity.go.in controller/strict_affinity.go
 RUN go mod download
 
-FROM oven/bun:1 AS web
+FROM oven/bun:1.4.0 AS web
 WORKDIR /src/web
 COPY --from=source /src/web/ ./
 COPY --from=source /src/VERSION /src/VERSION
-RUN bun install --frozen-lockfile && DISABLE_ESLINT_PLUGIN=true bun run build
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile && DISABLE_ESLINT_PLUGIN=true bun run build
 
 FROM source AS build
 ENV CGO_ENABLED=0 GOWORK=off

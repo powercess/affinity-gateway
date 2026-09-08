@@ -116,11 +116,11 @@ xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=.
 
 ```bash
 cd web
-npm ci
-npm run dev -- --port 18240 --strictPort
+bun install --frozen-lockfile
+bun run dev
 ```
 
-预览仅监听本机，访问 `http://127.0.0.1:18240/`。运行 `npm test` 和 `npm run build` 可校验原型。
+预览仅监听本机，访问 `http://127.0.0.1:18240/`。运行 `bun run test` 和 `bun run build` 可校验原型。
 
 ### 网关
 

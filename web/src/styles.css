@@ -1038,3 +1038,34 @@ footer span {
     transition: none !important;
   }
 }
+
+
+
+.app-toast-viewport { position: fixed; top: 20px; right: 20px; z-index: 100; display: flex; flex-direction: column; gap: 10px; width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; margin: 0; padding: 0; list-style: none; outline: none; }
+.app-toast { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--popover); color: var(--foreground); box-shadow: none; }
+.app-toast > svg { flex-shrink: 0; margin-top: 2px; color: var(--success); }
+.app-toast[data-kind="error"] > svg { color: var(--danger); }
+.app-toast-message { flex: 1; min-width: 0; font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.app-toast[data-swipe="move"] { transform: translateX(var(--radix-toast-swipe-move-x)); }
+.app-toast[data-swipe="cancel"] { transform: translateX(0); transition: transform 150ms ease-out; }
+@media (prefers-reduced-motion: no-preference) {
+  .app-toast[data-state="open"] { animation: toast-enter 180ms ease-out; }
+  @keyframes toast-enter { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+}
+
+.connection-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--success); }
+.connection[data-connected="false"] .connection-dot { background: #ca8a04; }
+
+.request-dialog-overlay { position: fixed; inset: 0; z-index: 40; background: #0006; }
+.request-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.request-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px; }
+.request-dialog-heading > div { min-width: 0; overflow-wrap: anywhere; }
+.request-dialog-heading h2 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
+.request-dialog-body { min-height: 0; overflow: auto; }
+.request-dialog > .pagination { flex-shrink: 0; }
+
+.request-pagination { flex-shrink: 0; flex-wrap: wrap; gap: 12px; }
+.request-pagination .pagination-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.request-pagination button { width: auto; min-width: 30px; padding: 0 10px; }
+.pagination-page { display: inline-flex; align-items: center; gap: 6px; }
+.request-pagination select { height: 30px; padding: 0 8px; background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: var(--radius-md); }

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Pagination } from "./components/ui/pagination";
+import { Dialog } from "radix-ui";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -13,6 +15,8 @@ import {
   Sun,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
+import { useNotifications } from "./components/ui/toast";
+import { copyText } from "./lib/clipboard";
 import { Input } from "./components/ui/input";
 import {
   Table,
@@ -63,6 +67,12 @@ const nav = [
 ] as const;
 
 export default function LiveConsole() {
+  const [requestGroup, setRequestGroup] = useState<{kind: "profile" | "session"; value: string} | null>(null);
+  const [pageSize, setPageSize] = useState(20);
+  const [groupPageSize, setGroupPageSize] = useState(20);
+  const [requestPage, setRequestPage] = useState(0);
+  const { notify, toaster } = useNotifications();
+  const [deletingSupplier, setDeletingSupplier] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(true);
   useEffect(() => {
     const controller = new AbortController();
@@ -92,8 +102,6 @@ export default function LiveConsole() {
   const [supplierID, setSupplierID] = useState(""),
     [supplierOrigin, setSupplierOrigin] = useState(""),
     [supplierAdapter, setSupplierAdapter] = useState(""),
-    [pluginDrafts, setPluginDrafts] = useState<Record<string, string>>({}),
-    [savingPlugin, setSavingPlugin] = useState(""),
     [savingSupplier, setSavingSupplier] = useState(false);
   const generation = useRef(0);
   useEffect(() => {
@@ -193,47 +201,58 @@ export default function LiveConsole() {
         v?.toLowerCase().includes(query.toLowerCase()),
       ),
   );
+  const groupRows = requestGroup ? rows.filter((row) => row[requestGroup.kind] === requestGroup.value) : [];
+  const groupPageCount = Math.max(1, Math.ceil(groupRows.length / groupPageSize));
+  const groupPage = Math.min(requestPage, groupPageCount - 1);
   const profiles = [...new Set(rows.map((r) => r.profile))];
   const sessions = [
     ...new Set(rows.flatMap((r) => (r.session ? [r.session] : []))),
   ];
   const [page, setPage] = useState(0);
   const authHeaders: Record<string, string> = authRequired ? { Authorization: `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`admin:${credential}`)))}` } : {};
-  async function addSupplier(e: FormEvent) {
-    e.preventDefault(); setSavingSupplier(true); setError("");
+  function resetSupplierForm() {
+    setSupplierID(""); setSupplierOrigin(""); setSupplierAdapter("");
+  }
+  async function copySupplierURL(supplier: Supplier) {
+    try {
+      await copyText(supplier.internal_base_url);
+      notify.success(`已复制 ${supplier.id} 内部地址`);
+    } catch {
+      notify.error(`复制失败，请手动选择并复制内部地址：${supplier.internal_base_url}`);
+    }
+  }
+  async function saveSupplier(e: FormEvent) {
+    e.preventDefault(); setSavingSupplier(true);
     try {
       const [id, version] = supplierAdapter.split("@");
       const plugins = supplierAdapter ? [{id, version}] : [];
       const response = await fetch("/api/suppliers", { method: "POST", headers: {...authHeaders, "Content-Type":"application/json"}, body: JSON.stringify({id:supplierID, origin:supplierOrigin, plugins}) });
       if (!response.ok) throw new Error((await response.text()).trim() || `保存失败（${response.status}）`);
-      const data = await response.json() as {items: Supplier[]}; setSuppliers(data.items); setSupplierID(""); setSupplierOrigin(""); setSupplierAdapter("");
-    } catch (e) { setError(e instanceof Error ? e.message : "保存失败"); }
+      const data = await response.json() as {items: Supplier[]}; setSuppliers(data.items);
+      notify.success(`已添加 ${supplierID}`); resetSupplierForm();
+    } catch (e) { notify.error(e instanceof Error ? e.message : "保存失败"); }
     finally { setSavingSupplier(false); }
   }
   async function deleteSupplier(id: string) {
     if (!confirm(`删除出口 ${id}？`)) return;
-    setError("");
-    const response = await fetch(`/api/suppliers/${id}`, {method:"DELETE", headers:authHeaders});
-    if (response.ok) setSuppliers((rows) => rows.filter((row) => row.id !== id));
-    else setError((await response.text()).trim() || `删除失败（${response.status}）`);
-  }
-  async function updateSupplierPlugins(supplier: Supplier) {
-    const adapter = pluginDrafts[supplier.id] ?? (supplier.plugins?.[0] ? `${supplier.plugins[0].id}@${supplier.plugins[0].version}` : "");
-    setSavingPlugin(supplier.id); setError("");
+    if (deletingSupplier) return;
+    setDeletingSupplier(id);
     try {
-      const [id, version] = adapter.split("@");
-      const plugins = adapter ? [{id, version}] : [];
-      const response = await fetch(`/api/suppliers/${supplier.id}/plugins`, {method:"PUT", headers:{...authHeaders, "Content-Type":"application/json"}, body:JSON.stringify({plugins})});
-      if (!response.ok) throw new Error((await response.text()).trim() || `保存失败（${response.status}）`);
-      const data = await response.json() as {items: Supplier[]};
-      setSuppliers(data.items); setPluginDrafts((drafts)=>{const next={...drafts}; delete next[supplier.id]; return next;});
-    } catch (e) { setError(e instanceof Error ? e.message : "保存失败"); }
-    finally { setSavingPlugin(""); }
+      const response = await fetch(`/api/suppliers/${id}`, {method:"DELETE", headers:authHeaders});
+      if (!response.ok) throw new Error((await response.text()).trim() || `删除失败（${response.status}）`);
+      setSuppliers((rows) => rows.filter((row) => row.id !== id));
+      notify.success(`已删除出口 ${id}`);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "删除失败");
+    } finally {
+      setDeletingSupplier(null);
+    }
   }
+
   useEffect(() => {
     setPage(0);
   }, [query, profile, session, location.pathname]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
   function list(data: Observation[]) {
     return (
@@ -300,6 +319,7 @@ export default function LiveConsole() {
   }
   return (
     <div className="app-shell">
+      {toaster}
       <aside className="sidebar">
         <div className="brand">
           <Network />
@@ -326,8 +346,9 @@ export default function LiveConsole() {
         <header className="topbar">
           <span>{heading}</span>
           <div className="topbar-actions">
-            <span className="connection">
-              {connected ? "已连接" : "未连接"}
+            <span className="connection" data-connected={connected} aria-live="polite" title="控制台与网关的实时数据同步状态">
+              <span className="connection-dot" aria-hidden="true" />
+              {connected ? "实时更新中" : "连接中断，正在重连"}
             </span>
             <Button
               variant="ghost"
@@ -408,8 +429,8 @@ export default function LiveConsole() {
                         <Button
                           variant="ghost"
                           onClick={() => {
-                            setProfile(p);
-                            setSession("");
+                            setRequestGroup({kind: "profile", value: p});
+                            setRequestPage(0);
                           }}
                         >
                           查看请求
@@ -418,7 +439,6 @@ export default function LiveConsole() {
                     );
                   })}
                   {!profiles.length && <div className="empty">暂无记录</div>}
-                  {profile && list(filtered.slice(0, 20))}
                 </section>
               )}
               {location.pathname === "/sessions" && (
@@ -435,8 +455,8 @@ export default function LiveConsole() {
                       <Button
                         variant="ghost"
                         onClick={() => {
-                          setSession(s);
-                          setProfile("");
+                          setRequestGroup({kind: "session", value: s});
+                          setRequestPage(0);
                         }}
                       >
                         查看请求
@@ -444,7 +464,6 @@ export default function LiveConsole() {
                     </div>
                   ))}
                   {!sessions.length && <div className="empty">暂无记录</div>}
-                  {session && list(filtered.slice(0, 20))}
                 </section>
               )}
               {location.pathname === "/requests" && (
@@ -469,29 +488,9 @@ export default function LiveConsole() {
                   </div>
                   <section className="panel">
                     {list(
-                      filtered.slice(currentPage * 20, currentPage * 20 + 20),
+                      filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize),
                     )}
-                    <div className="pagination">
-                      <span>
-                        {filtered.length} 条 · {currentPage + 1} / {pageCount}
-                      </span>
-                      <div>
-                        <Button
-                          variant="outline"
-                          disabled={currentPage === 0}
-                          onClick={() => setPage(currentPage - 1)}
-                        >
-                          上一页
-                        </Button>
-                        <Button
-                          variant="outline"
-                          disabled={currentPage + 1 >= pageCount}
-                          onClick={() => setPage(currentPage + 1)}
-                        >
-                          下一页
-                        </Button>
-                      </div>
-                    </div>
+                    <Pagination total={filtered.length} page={currentPage} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(0); }} />
                   </section>
                 </>
               )}
@@ -499,17 +498,30 @@ export default function LiveConsole() {
                 <div className="config-stack">
                   <section className="panel supplier-form-panel">
                     <div className="panel-heading"><h2>添加出口</h2></div>
-                    <form className="supplier-form" onSubmit={addSupplier}>
-                      <div><label htmlFor="supplier-id">出口 ID</label><Input id="supplier-id" required pattern="[a-z][a-z0-9-]{0,47}" placeholder="openai-main" value={supplierID} onChange={(e)=>setSupplierID(e.target.value)} /></div>
-                      <div><label htmlFor="supplier-origin">真实 Origin</label><Input id="supplier-origin" required type="url" placeholder="https://api.example.com" value={supplierOrigin} onChange={(e)=>setSupplierOrigin(e.target.value)} /></div>
-                      <div><label htmlFor="supplier-adapter">出站插件</label><select id="supplier-adapter" value={supplierAdapter} onChange={(e)=>setSupplierAdapter(e.target.value)}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select></div>
+                    <form className="supplier-form" onSubmit={saveSupplier}>
+                      <div><label htmlFor="supplier-id">出口 ID</label><Input id="supplier-id" disabled={savingSupplier} required pattern="[a-z][a-z0-9-]{0,47}" placeholder="openai-main" value={supplierID} onChange={(e)=>setSupplierID(e.target.value)} /></div>
+                      <div><label htmlFor="supplier-origin">真实 Origin</label><Input id="supplier-origin" disabled={savingSupplier} required type="url" placeholder="https://api.example.com" value={supplierOrigin} onChange={(e)=>setSupplierOrigin(e.target.value)} /></div>
+                      <div><label htmlFor="supplier-adapter">出站插件</label><select id="supplier-adapter" disabled={savingSupplier} value={supplierAdapter} onChange={(e)=>setSupplierAdapter(e.target.value)}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select></div>
                       <Button type="submit" disabled={savingSupplier}>{savingSupplier ? "保存中…" : "添加"}</Button>
                     </form>
                   </section>
                   <section className="panel">
                     <div className="panel-heading"><h2>出口供应商</h2></div>
                     <Table><TableHeader><TableRow><TableHead>出口 ID</TableHead><TableHead>内部 Base URL</TableHead><TableHead>真实 Origin</TableHead><TableHead>插件</TableHead><TableHead /></TableRow></TableHeader>
-                    <TableBody>{suppliers.map((supplier)=>{const current=supplier.plugins?.[0] ? `${supplier.plugins[0].id}@${supplier.plugins[0].version}` : ""; const draft=pluginDrafts[supplier.id] ?? current; return <TableRow key={supplier.id}><TableCell className="mono">{supplier.id}</TableCell><TableCell><span className="mono">{supplier.internal_base_url}</span><Button variant="ghost" size="icon" aria-label={`复制 ${supplier.id} 内部地址`} onClick={()=>void navigator.clipboard.writeText(supplier.internal_base_url)}><Copy size={15}/></Button></TableCell><TableCell className="mono">{supplier.origin}</TableCell><TableCell><div className="binding-plugin-editor"><select aria-label={`${supplier.id} 插件`} value={draft} onChange={(e)=>setPluginDrafts((rows)=>({...rows,[supplier.id]:e.target.value}))}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select><Button variant="outline" disabled={draft===current || savingPlugin===supplier.id} onClick={()=>void updateSupplierPlugins(supplier)}>{savingPlugin===supplier.id ? "保存中…" : "保存"}</Button></div></TableCell><TableCell><Button variant="ghost" size="icon" aria-label={`删除 ${supplier.id}`} onClick={()=>void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button></TableCell></TableRow>})}{!suppliers.length&&<TableRow><TableCell colSpan={5}><div className="empty">暂无出口</div></TableCell></TableRow>}</TableBody></Table>
+                    <TableBody>
+                      {suppliers.map((supplier) => (
+                        <TableRow key={supplier.id}>
+                          <TableCell className="mono">{supplier.id}</TableCell>
+                          <TableCell><span className="mono">{supplier.internal_base_url}</span><Button variant="ghost" size="icon" aria-label={`复制 ${supplier.id} 内部地址`} onClick={() => void copySupplierURL(supplier)}><Copy size={15}/></Button></TableCell>
+                          <TableCell className="mono">{supplier.origin}</TableCell>
+                          <TableCell>{supplier.plugins?.length ? supplier.plugins.map((plugin) => `${plugin.id}@${plugin.version}`).join(", ") : "无"}</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="icon" disabled={savingSupplier || !!deletingSupplier} aria-label={`删除 ${supplier.id}`} onClick={() => void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {!suppliers.length && <TableRow><TableCell colSpan={5}><div className="empty">暂无出口</div></TableCell></TableRow>}
+                    </TableBody></Table>
                   </section>
                 </div>
               )}
@@ -517,6 +529,22 @@ export default function LiveConsole() {
           )}
         </main>
       </div>
+      <Dialog.Root open={!!requestGroup} onOpenChange={(open) => { if (!open) setRequestGroup(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="request-dialog-overlay" />
+          <Dialog.Content className="request-dialog">
+            <div className="request-dialog-heading">
+              <div>
+                <Dialog.Title>查看请求</Dialog.Title>
+                <Dialog.Description className="muted">{requestGroup?.kind === "profile" ? "配置" : "会话"}：{requestGroup?.value}</Dialog.Description>
+              </div>
+              <Dialog.Close asChild><Button variant="outline" size="sm">关闭</Button></Dialog.Close>
+            </div>
+            <div className="request-dialog-body">{list(groupRows.slice(groupPage * groupPageSize, (groupPage + 1) * groupPageSize))}</div>
+            <Pagination total={groupRows.length} page={groupPage} pageSize={groupPageSize} onPageChange={setRequestPage} onPageSizeChange={(size) => { setGroupPageSize(size); setRequestPage(0); }} />
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Sheet
         open={!!selected}
         onOpenChange={(v) => {

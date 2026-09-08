@@ -1,9 +1,9 @@
-FROM node:22-alpine AS build
+FROM oven/bun:1.4.0-alpine AS build
 WORKDIR /web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
+COPY web/package.json web/bun.lock ./
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile
 COPY web/ ./
-RUN npm run build
+RUN bun run build
 
 FROM caddy:2.11.4-alpine
 ARG VERSION=dev
