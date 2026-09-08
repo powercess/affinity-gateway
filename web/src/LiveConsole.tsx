@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { InboundRulesPanel } from "./components/inbound-rules";
 import { Pagination } from "./components/ui/pagination";
 import { Dialog } from "radix-ui";
 import { NavLink, useLocation } from "react-router-dom";
@@ -13,6 +14,8 @@ import {
   Copy,
   Trash2,
   Sun,
+  Plus,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { useNotifications } from "./components/ui/toast";
@@ -44,6 +47,8 @@ export type Observation = {
   session?: string;
   policy?: string;
   scope?: string;
+  validation_mode?: string;
+  rules_revision?: number;
   status?: number;
   duration: number;
   error?: string;
@@ -67,11 +72,15 @@ const nav = [
 ] as const;
 
 export default function LiveConsole() {
+  const [addingSupplier, setAddingSupplier] = useState(false);
+  const [pluginSupplier, setPluginSupplier] = useState<Supplier | null>(null);
   const [requestGroup, setRequestGroup] = useState<{kind: "profile" | "session"; value: string} | null>(null);
   const [pageSize, setPageSize] = useState(20);
   const [groupPageSize, setGroupPageSize] = useState(20);
   const [requestPage, setRequestPage] = useState(0);
   const { notify, toaster } = useNotifications();
+  const [pluginDrafts, setPluginDrafts] = useState<Record<string, string>>({});
+  const [savingPlugin, setSavingPlugin] = useState<string | null>(null);
   const [deletingSupplier, setDeletingSupplier] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(true);
   useEffect(() => {
@@ -229,9 +238,22 @@ export default function LiveConsole() {
       const response = await fetch("/api/suppliers", { method: "POST", headers: {...authHeaders, "Content-Type":"application/json"}, body: JSON.stringify({id:supplierID, origin:supplierOrigin, plugins}) });
       if (!response.ok) throw new Error((await response.text()).trim() || `保存失败（${response.status}）`);
       const data = await response.json() as {items: Supplier[]}; setSuppliers(data.items);
-      notify.success(`已添加 ${supplierID}`); resetSupplierForm();
+      notify.success(`已添加 ${supplierID}`); resetSupplierForm(); setAddingSupplier(false);
     } catch (e) { notify.error(e instanceof Error ? e.message : "保存失败"); }
     finally { setSavingSupplier(false); }
+  }
+  async function saveSupplierPlugins(supplier: Supplier) {
+    const adapter = pluginDrafts[supplier.id] ?? "";
+    const [id, version] = adapter.split("@");
+    setSavingPlugin(supplier.id);
+    try {
+      const response = await fetch(`/api/suppliers/${supplier.id}/plugins`, {method: "PUT", headers: {...authHeaders, "Content-Type": "application/json"}, body: JSON.stringify({plugins: adapter ? [{id, version}] : []})});
+      if (!response.ok) throw new Error((await response.text()).trim() || "出站规则保存失败");
+      const data = await response.json() as {items: Supplier[]}; setSuppliers(data.items);
+      setPluginDrafts((drafts) => {const next = {...drafts}; delete next[supplier.id]; return next;});
+      notify.success(`已保存 ${supplier.id} 出站规则`); setPluginSupplier(null);
+    } catch (error) {notify.error(error instanceof Error ? error.message : "出站规则保存失败");}
+    finally {setSavingPlugin(null);}
   }
   async function deleteSupplier(id: string) {
     if (!confirm(`删除出口 ${id}？`)) return;
@@ -496,27 +518,29 @@ export default function LiveConsole() {
               )}
               {location.pathname === "/config" && (
                 <div className="config-stack">
-                  <section className="panel supplier-form-panel">
-                    <div className="panel-heading"><h2>添加出口</h2></div>
+                  <InboundRulesPanel authHeaders={authHeaders} notify={notify} />
+                  <Dialog.Root open={addingSupplier} onOpenChange={(open) => {if (!savingSupplier) setAddingSupplier(open);}}><Dialog.Portal><Dialog.Overlay className="request-dialog-overlay" /><Dialog.Content className="request-dialog settings-modal">
+                    <div className="settings-modal-heading"><Dialog.Title>添加供应商</Dialog.Title><Dialog.Description>连接一个供应商，生成用于 new-api 的内部地址。</Dialog.Description></div>
                     <form className="supplier-form" onSubmit={saveSupplier}>
                       <div><label htmlFor="supplier-id">出口 ID</label><Input id="supplier-id" disabled={savingSupplier} required pattern="[a-z][a-z0-9-]{0,47}" placeholder="openai-main" value={supplierID} onChange={(e)=>setSupplierID(e.target.value)} /></div>
                       <div><label htmlFor="supplier-origin">真实 Origin</label><Input id="supplier-origin" disabled={savingSupplier} required type="url" placeholder="https://api.example.com" value={supplierOrigin} onChange={(e)=>setSupplierOrigin(e.target.value)} /></div>
                       <div><label htmlFor="supplier-adapter">出站插件</label><select id="supplier-adapter" disabled={savingSupplier} value={supplierAdapter} onChange={(e)=>setSupplierAdapter(e.target.value)}><option value="">无</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select></div>
                       <Button type="submit" disabled={savingSupplier}>{savingSupplier ? "保存中…" : "添加"}</Button>
                     </form>
-                  </section>
+                  <Button className="settings-modal-close" variant="ghost" disabled={savingSupplier} onClick={() => setAddingSupplier(false)}>取消</Button></Dialog.Content></Dialog.Portal></Dialog.Root>
                   <section className="panel">
-                    <div className="panel-heading"><h2>出口供应商</h2></div>
-                    <Table><TableHeader><TableRow><TableHead>出口 ID</TableHead><TableHead>内部 Base URL</TableHead><TableHead>真实 Origin</TableHead><TableHead>插件</TableHead><TableHead /></TableRow></TableHeader>
+                    <div className="settings-section-heading"><div className="settings-section-title"><ArrowUpFromLine size={18} /><div><h2>出口供应商</h2><p>{suppliers.length} 个出口 · 管理连接与会话插件</p></div></div><Button size="sm" onClick={() => setAddingSupplier(true)}><Plus size={14} />添加供应商</Button></div>
+                    <Table><TableHeader><TableRow><TableHead>供应商名称</TableHead><TableHead>内部地址</TableHead><TableHead>目标地址</TableHead><TableHead>插件状态</TableHead><TableHead /></TableRow></TableHeader>
                     <TableBody>
                       {suppliers.map((supplier) => (
                         <TableRow key={supplier.id}>
                           <TableCell className="mono">{supplier.id}</TableCell>
                           <TableCell><span className="mono">{supplier.internal_base_url}</span><Button variant="ghost" size="icon" aria-label={`复制 ${supplier.id} 内部地址`} onClick={() => void copySupplierURL(supplier)}><Copy size={15}/></Button></TableCell>
                           <TableCell className="mono">{supplier.origin}</TableCell>
-                          <TableCell>{supplier.plugins?.length ? supplier.plugins.map((plugin) => `${plugin.id}@${plugin.version}`).join(", ") : "无"}</TableCell>
+                          <TableCell><span className="settings-state">{supplier.plugins?.length ? `会话插件 · ${supplier.plugins[0].version}` : "未启用插件"}</span></TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="icon" disabled={savingSupplier || !!deletingSupplier} aria-label={`删除 ${supplier.id}`} onClick={() => void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button>
+                            <Button variant="outline" size="sm" aria-label={`配置供应商 ${supplier.id}`} onClick={() => setPluginSupplier(supplier)}>配置</Button>
+                            <Button variant="ghost" size="icon" disabled={savingSupplier || !!deletingSupplier || savingPlugin === supplier.id} aria-label={`删除 ${supplier.id}`} onClick={() => void deleteSupplier(supplier.id)}><Trash2 size={15}/></Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -529,6 +553,12 @@ export default function LiveConsole() {
           )}
         </main>
       </div>
+      <Dialog.Root open={!!pluginSupplier} onOpenChange={(open) => {if (!open && !savingPlugin) setPluginSupplier(null);}}>
+        <Dialog.Portal><Dialog.Overlay className="request-dialog-overlay" /><Dialog.Content className="request-dialog settings-modal">
+          <div className="settings-modal-heading"><Dialog.Title>配置供应商：{pluginSupplier?.id}</Dialog.Title><Dialog.Description>调整此供应商的会话插件。</Dialog.Description></div>
+          {pluginSupplier && <div className="settings-modal-body"><label htmlFor="outbound-plugin">会话插件</label><select id="outbound-plugin" disabled={!!savingPlugin} value={pluginDrafts[pluginSupplier.id] ?? (pluginSupplier.plugins?.[0] ? `${pluginSupplier.plugins[0].id}@${pluginSupplier.plugins[0].version}` : "")} onChange={(event) => setPluginDrafts({...pluginDrafts, [pluginSupplier.id]: event.target.value})}><option value="">不启用</option><option value="opencode-go-session@1.1.0">OpenCode Go 会话 · 1.1.0</option><option value="opencode-go-session@1.0.0">OpenCode Go 会话 · 1.0.0（兼容）</option></select><p className="muted">按供应商派生会话标识，保持原有出口地址。</p><div className="settings-modal-actions"><Button variant="outline" disabled={!!savingPlugin} onClick={() => setPluginSupplier(null)}>取消</Button><Button disabled={!!savingPlugin || pluginDrafts[pluginSupplier.id] === undefined || pluginDrafts[pluginSupplier.id] === (pluginSupplier.plugins?.[0] ? `${pluginSupplier.plugins[0].id}@${pluginSupplier.plugins[0].version}` : "")} onClick={() => void saveSupplierPlugins(pluginSupplier)}>{savingPlugin ? "保存中…" : "保存出站规则"}</Button></div></div>}
+        </Dialog.Content></Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root open={!!requestGroup} onOpenChange={(open) => { if (!open) setRequestGroup(null); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="request-dialog-overlay" />
@@ -566,7 +596,9 @@ export default function LiveConsole() {
                   {[
                     ["模型", selected.model],
                     ["命中字段", selected.source],
-                    ["会话指纹", selected.session],
+                    ["校验模式", selected.validation_mode === "headers_only" ? "仅请求头识别" : selected.validation_mode === "strict" ? "严格一致性检查" : "—"],
+                    ["规则版本", selected.rules_revision === undefined ? "—" : String(selected.rules_revision)],
+                    ["处理结果", selected.error ? `拒绝 / 失败：${selected.error}` : selected.after ? "已转发" : "未转发"],
                     ["策略", selected.policy],
                     ["作用域", selected.scope],
                     ["状态", selected.error ?? selected.status],
@@ -578,11 +610,12 @@ export default function LiveConsole() {
                     </div>
                   ))}
                 </dl>
-                <h3>处理前</h3>
+                <p className="muted">仅显示允许的协议请求头。凭据、Cookie、原始身份及内部标识均由服务端脱敏；详情只保存在进程内存中。</p>
+                <h3>{selected.mode === "inbound" ? "入站请求头（处理前）" : "出口收到的请求头（处理前）"}</h3>
                 <pre className="header-json">
                   {JSON.stringify(selected.before, null, 2)}
                 </pre>
-                <h3>处理后</h3>
+                <h3>转发请求头（处理后）</h3>
                 <pre className="header-json">
                   {selected.after
                     ? JSON.stringify(selected.after, null, 2)

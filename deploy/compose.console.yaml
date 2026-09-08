@@ -12,6 +12,11 @@ services:
       - ./console/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./test/Caddyfile:/etc/caddy/test.Caddyfile:ro
       - console_config:/var/lib/affinity
+  harness:
+    networks: [default, harness_net]
+    environment:
+      MATRIX_CONSOLE_URL: http://console
+      AFFINITY_CONSOLE_PASSWORD: ${AFFINITY_CONSOLE_PASSWORD:-affinity-local-console-development}
   console:
     image: affinity-console:local
     build:

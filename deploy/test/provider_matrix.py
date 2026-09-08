@@ -5,6 +5,9 @@ Separate disposable HOME/workspace per registration and lane; each resume is
 a new CLI process reading the client's own saved conversation.
 """
 import json
+from contextlib import contextmanager
+import base64
+import urllib.request
 import os
 from pathlib import Path
 import subprocess
@@ -48,6 +51,42 @@ CASES = [
 ]
 
 
+@contextmanager
+def lane_rules(lane):
+    """Run sequential configurations on the same ingress; restore with CAS."""
+    if lane not in ("direct", "affinity", "cache-contract"):
+        raise ValueError("Unknown matrix lane: " + lane)
+    if lane == "direct":
+        yield
+        return
+    # Without a console, the base harness supports only its strict defaults.
+    base = os.environ.get("MATRIX_CONSOLE_URL", "")
+    if not base:
+        if lane == "cache-contract":
+            raise RuntimeError("cache-contract requires MATRIX_CONSOLE_URL to switch ingress rules")
+        yield
+        return
+
+    def request(rules=None):
+        headers = {"Content-Type": "application/json"}
+        password = os.environ.get("AFFINITY_CONSOLE_PASSWORD", "")
+        if password:
+            headers["Authorization"] = "Basic " + base64.b64encode(("admin:" + password).encode()).decode()
+        req = urllib.request.Request(base.rstrip("/") + "/api/inbound-rules",
+            data=None if rules is None else json.dumps(rules).encode(),
+            headers=headers, method="GET" if rules is None else "PUT")
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return next(r for r in json.load(response)["items"] if r["profile"] == "harness-main")
+
+    original = request()
+    active = request(dict(original, cache_key=lane == "cache-contract"))
+    try:
+        yield
+    finally:
+        # Use our revision so concurrent operator changes are never overwritten.
+        request(dict(original, revision=active["revision"]))
+
+
 def setup(case, lane):
     name, binary, provider, model, adapter, builtin = case
     root = Path("/work") / RUN / lane / name
@@ -59,7 +98,7 @@ def setup(case, lane):
     env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
                XDG_DATA_HOME=str(home / ".local/share"), XDG_CACHE_HOME=str(home / ".cache"))
     env.update(TEST_API_KEY=TOKEN)
-    endpoint = "http://capture:" + ("8004" if lane == "direct" else "8005" if lane == "cache-contract" else "8001")
+    endpoint = "http://capture:" + ("8004" if lane == "direct" else "8001")
     anthropic = "anthropic" in (adapter or provider) or model.startswith("claude-")
     base = endpoint + ("" if binary != "opencode" and anthropic else "/v1")
     config = {}
@@ -137,9 +176,10 @@ if __name__ == "__main__":
     results = []
     selected = os.environ.get("MATRIX_CASES", "").split(",")
     for lane in os.environ.get("MATRIX_LANES", "direct,affinity").split(","):
-        for case in CASES:
-            if selected != [""] and case[0] not in selected:
-                continue
-            run_case(case, lane, results)
+        with lane_rules(lane):
+            for case in CASES:
+                if selected != [""] and case[0] not in selected:
+                    continue
+                run_case(case, lane, results)
     Path("/artifacts/latest-matrix").write_text(RUN)
     print(json.dumps({"run": RUN, "cases": len(results), "reply_matched": sum(r["reply_match"] for r in results)}), flush=True)

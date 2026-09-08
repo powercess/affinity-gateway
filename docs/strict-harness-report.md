@@ -83,7 +83,7 @@ OpenCode 禁用工具执行/分享；Kimi --quiet 是原生非交互选项，它
 
 ## 5. 已声明缓存键语义的专用入口
 
-对已核实把原生 session ID 放入 prompt_cache_key 的客户端，另外测试内部 8239 入口，操作员配置 cache_key_as_session true。客户端仅更换 endpoint，没有补头。该选项不默认打开，不能凭 User-Agent 自动启用，也不能推广到任意缓存分组键。
+历史测试对已核实把原生 session ID 放入 prompt_cache_key 的客户端使用了内部 8239 入口。现在已合并到 8236：通过入站规则开启缓存键兜底，顺序执行测试，不再单独监听 8239。客户端仅更换 endpoint，没有补头。该选项不默认打开，不能凭 User-Agent 自动启用，也不能推广到任意缓存分组键。
 
 | 注册 | 回复与恢复 | 完整链路校验 |
 |---|---:|---:|
@@ -148,4 +148,4 @@ docker compose -f deploy/compose.test.yaml run --rm --no-deps probe python /test
 docker build --target unit -f deploy/new-api/Dockerfile deploy/new-api
 ```
 
-不要并行运行 matrix 与其他推理探针。driver 收集全部结果后退出，并不以其退出码代表兼容通过；必须运行 oracle。STRICT_MATRIX=1 将“正确拒绝”作为策略验证成功；恢复成功数仍单独列出。专用入口通过 MATRIX_LANES=cache-contract 与 MATRIX_CASES 筛选上述六种注册，默认入口保持严格默认值。
+不要并行运行 matrix 与其他推理探针。driver 收集全部结果后退出，并不以其退出码代表兼容通过；必须运行 oracle。STRICT_MATRIX=1 将“正确拒绝”作为策略验证成功；恢复成功数仍单独列出。使用控制台测试环境（compose.test.yaml + compose.console.yaml），通过 MATRIX_LANES=cache-contract 与 MATRIX_CASES 筛选上述六种注册。matrix 通过 MATRIX_CONSOLE_URL 的规则 API 临时切换同一个 harness-main 入口的 cache_key 开关，完成或异常后恢复原规则；恢复遇到版本冲突会报错，不覆盖他人的修改。affinity 分组临时关闭该开关，两组均使用 capture:8001 → 8236。强制终止进程时需要手动检查并恢复规则。

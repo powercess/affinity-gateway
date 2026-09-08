@@ -23,22 +23,24 @@ import (
 )
 
 // Observation records one gateway leg, not an inferred new-api routing decision.
-// Headers are a fixed allowlist, and identity values are keyed fingerprints.
+// Header identity values are redacted; session grouping uses a separate keyed fingerprint.
 type Observation struct {
-	ID       string            `json:"id"`
-	At       time.Time         `json:"at"`
-	Mode     string            `json:"mode"`
-	Profile  string            `json:"profile"`
-	Model    string            `json:"model,omitempty"`
-	Source   string            `json:"source,omitempty"`
-	Session  string            `json:"session,omitempty"`
-	Policy   string            `json:"policy,omitempty"`
-	Scope    string            `json:"scope,omitempty"`
-	Status   int               `json:"status,omitempty"`
-	Duration int64             `json:"duration"`
-	Error    string            `json:"error,omitempty"`
-	Before   map[string]string `json:"before"`
-	After    map[string]string `json:"after"`
+	ValidationMode string            `json:"validation_mode,omitempty"`
+	RulesRevision  uint64            `json:"rules_revision,omitempty"`
+	ID             string            `json:"id"`
+	At             time.Time         `json:"at"`
+	Mode           string            `json:"mode"`
+	Profile        string            `json:"profile"`
+	Model          string            `json:"model,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	Session        string            `json:"session,omitempty"`
+	Policy         string            `json:"policy,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	Status         int               `json:"status,omitempty"`
+	Duration       int64             `json:"duration"`
+	Error          string            `json:"error,omitempty"`
+	Before         map[string]string `json:"before"`
+	After          map[string]string `json:"after"`
 }
 type observationKey struct{}
 type observationStore struct {
@@ -83,13 +85,45 @@ func observedHeaders(r *http.Request, secret string) map[string]string {
 	result := map[string]string{}
 	for _, name := range sessionHeaders {
 		if value := r.Header.Get(name); value != "" {
-			result[name] = "fp:" + fingerprint(secret, value)
+			result[name] = "[redacted]"
 		}
 	}
 	// Never retain user agents, URLs, cookies, arbitrary headers, keys or bodies.
-	for _, name := range []string{"Authorization", "X-Api-Key", "Cookie"} {
+	for _, name := range []string{"Authorization", "Proxy-Authorization", "X-Api-Key", "Cookie"} {
 		if r.Header.Get(name) != "" {
 			result[name] = "[redacted]"
+		}
+	}
+	for _, name := range []string{"Content-Type", "Content-Encoding", "Accept", "Accept-Encoding", "Anthropic-Version"} {
+		if value := r.Header.Get(name); value != "" {
+			result[name] = safeProtocolHeader(value)
+		}
+	}
+	return result
+}
+func safeProtocolHeader(value string) string {
+	// Keep protocol tokens only; parameters and arbitrary client text are not retained.
+	allowed := map[string]bool{"application/json": true, "text/event-stream": true, "*/*": true, "identity": true, "gzip": true, "br": true, "deflate": true, "2023-06-01": true}
+	parts := strings.Split(value, ",")
+	if len(parts) > 8 {
+		return "[redacted]"
+	}
+	for i, p := range parts {
+		p = strings.TrimSpace(strings.SplitN(p, ";", 2)[0])
+		if !allowed[p] {
+			return "[redacted]"
+		}
+		parts[i] = p
+	}
+	return strings.Join(parts, ", ")
+}
+func (h Handler) observationHeaders(r *http.Request) map[string]string {
+	result := observedHeaders(r, h.secret)
+	if h.inbound != nil {
+		for _, rule := range h.inbound.Headers {
+			if len(r.Header.Values(rule.Name)) > 0 {
+				result[rule.Name] = "[redacted]"
+			}
 		}
 	}
 	return result
@@ -99,9 +133,13 @@ func (h Handler) observeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 	if _, err := rand.Read(id[:]); err != nil {
 		return h.handleHTTP(w, r, next)
 	}
-	event := Observation{ID: hex.EncodeToString(id[:]), At: time.Now().UTC(), Mode: h.Mode, Profile: h.ObserveID, Policy: h.Policy, Scope: h.IdentityScope, Before: observedHeaders(r, h.secret)}
+	event := Observation{ID: hex.EncodeToString(id[:]), At: time.Now().UTC(), Mode: h.Mode, Profile: h.ObserveID, Policy: h.Policy, Scope: h.IdentityScope, Before: h.observationHeaders(r)}
 	if h.Mode == "inbound" {
 		event.Policy = ""
+		if h.inbound != nil {
+			event.ValidationMode = h.inbound.Mode
+			event.RulesRevision = h.inbound.Revision
+		}
 	}
 	if h.Mode == "outbound" {
 		event.Session = fingerprint(h.secret, r.Header.Get(internalHeader))
@@ -110,7 +148,7 @@ func (h Handler) observeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 	recorder := caddyhttp.NewResponseRecorder(w, nil, nil)
 	// Snapshot after identity processing but before reverse_proxy can change headers.
 	downstream := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		event.After = observedHeaders(r, h.secret)
+		event.After = h.observationHeaders(r)
 		if h.Mode == "inbound" {
 			event.Session = fingerprint(h.secret, r.Header.Get(internalHeader))
 		}
@@ -182,6 +220,11 @@ func (c *Console) Provision(caddy.Context) error {
 			return err
 		}
 	}
+	if path := os.Getenv(c.ConfigEnv); path != "" {
+		if err := inboundRules.configure(path + ".inbound.json"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (c *Console) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.Handler) error {
@@ -199,6 +242,10 @@ func (c *Console) ServeHTTP(w http.ResponseWriter, r *http.Request, _ caddyhttp.
 		return nil
 	}
 	switch r.URL.Path {
+	case "/api/inbound-rules/preview":
+		return c.previewInboundRules(w, r)
+	case "/api/inbound-rules":
+		return c.serveInboundRules(w, r)
 	case "/api/observations":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")

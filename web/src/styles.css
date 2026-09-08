@@ -1069,3 +1069,76 @@ footer span {
 .request-pagination button { width: auto; min-width: 30px; padding: 0 10px; }
 .pagination-page { display: inline-flex; align-items: center; gap: 6px; }
 .request-pagination select { height: 30px; padding: 0 8px; background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: var(--radius-md); }
+
+.rules-fields { border: 0; min-width: 0; margin: 0; padding: 0 0 20px; }
+.rules-options, .rules-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 0 20px; margin: 16px 0; }
+.rules-options label { display: grid; gap: 8px; font-size: .8125rem; }
+.rules-options select { height: 36px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--foreground); padding: 0 10px; }
+.rules-options .rules-check { display: flex; align-items: center; }
+.rules-hint { padding: 0 20px; margin: 12px 0; font-size: .8125rem; color: var(--muted-foreground); }
+.rules-actions > input { max-width: 320px; }
+
+.rules-preview { margin: 20px; font-size: .8125rem; }
+.rules-preview summary { cursor: pointer; }
+.rules-preview label { display: grid; gap: 8px; margin: 12px 0; }
+.rules-preview textarea { min-height: 72px; width: 100%; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--foreground); }
+
+/* Settings use summary rows first; detailed controls live in contextual overlays. */
+.config-stack { max-width: 1120px; margin-inline: auto; gap: 24px; }
+.settings-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px; }
+.settings-section-title { display: flex; align-items: flex-start; gap: 12px; }
+.settings-section-title > svg { color: var(--muted-foreground); margin-top: 2px; }
+.settings-section-title h2 { font-size: .875rem; font-weight: 600; margin: 0; }
+.settings-section-title p { color: var(--muted-foreground); font-size: .75rem; margin: 5px 0 0; }
+.inbound-summary-list { padding: 0 24px 12px; }
+.inbound-summary-row { display: grid; grid-template-columns: minmax(120px, 1fr) 110px 140px 28px; align-items: center; gap: 16px; border-top: 1px solid var(--border); padding: 14px 0; font-size: .8125rem; }
+.settings-state { display: inline-flex; width: fit-content; padding: 3px 8px; border-radius: 4px; background: var(--secondary); color: var(--muted-foreground); font-size: .75rem; white-space: nowrap; }
+.draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+.settings-drawer { width: min(660px, 100vw); max-width: none; gap: 0; box-shadow: none; }
+.settings-drawer [data-slot="sheet-header"] { padding: 28px 48px 24px 24px; border-bottom: 1px solid var(--border); }
+.settings-drawer-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.settings-drawer .rules-fields { padding: 0; }
+.settings-drawer .rules-options { margin: 24px 0; gap: 20px; padding: 0 24px; }
+.settings-drawer .rules-options > label { flex: 1; min-width: 180px; }
+.settings-drawer .rules-options .rules-check { flex-basis: 100%; align-items: flex-start; line-height: 1.6; }
+.settings-drawer input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; margin-top: 3px; }
+.settings-drawer .rules-hint { padding: 0 24px; line-height: 1.65; font-size: .75rem; }
+.settings-disclosure { margin: 0 24px; border-top: 1px solid var(--border); font-size: .8125rem; }
+.settings-disclosure > summary { list-style: none; cursor: pointer; padding: 20px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary strong { font-weight: 500; display: block; }
+.settings-disclosure > summary small { display: block; color: var(--muted-foreground); font-size: .75rem; margin-top: 5px; }
+.settings-disclosure[open] > summary > svg { transform: rotate(90deg); }
+.settings-disclosure > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.settings-disclosure .rules-options, .settings-disclosure .rules-actions, .settings-disclosure .rules-hint { padding-inline: 0; }
+.settings-disclosure .rules-actions { gap: 8px; }
+.settings-disclosure .rules-actions input { flex: 1; min-width: 120px; }
+.settings-drawer .settings-savebar { position: sticky; bottom: 0; margin: 24px 0 0; border-top: 1px solid var(--border); background: var(--background); padding: 16px 24px; gap: 8px; }
+.settings-savebar > span { flex-basis: 100%; font-size: .6875rem; padding-top: 3px; }
+.settings-modal { width: min(500px, calc(100vw - 32px)); padding: 28px; gap: 24px; overflow-y: auto; }
+.settings-modal-heading h2 { margin: 0 0 8px; font-size: 1.125rem; font-weight: 600; }
+.settings-modal-heading p { margin: 0; color: var(--muted-foreground); font-size: .8125rem; line-height: 1.6; }
+.settings-modal .supplier-form { display: grid; grid-template-columns: 1fr; padding: 0; gap: 20px; }
+.settings-modal .supplier-form > button { justify-self: end; min-width: 90px; }
+.settings-modal-close { position: absolute; bottom: 28px; left: 28px; }
+.settings-modal-body { display: grid; gap: 10px; font-size: .8125rem; }
+.settings-modal-body select { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--foreground); background: var(--background); }
+.settings-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+@media (max-width: 600px) {
+ .settings-section-heading { padding: 20px 16px; gap: 12px; }
+ .inbound-summary-list { padding-inline: 16px; }
+ .inbound-summary-row { grid-template-columns: minmax(0, 1fr) auto 28px; gap: 8px; }
+ .inbound-summary-row > .muted { display: none; }
+ .settings-drawer .settings-savebar { padding-inline: 16px; }
+}
+
+.inbound-summary-row { grid-template-columns: minmax(140px, 1fr) 110px minmax(180px, 1.4fr) 64px; }
+.inbound-summary-labels { color: var(--muted-foreground); font-size: .75rem; padding-block: 10px; }
+.inbound-source-summary { line-height: 1.6; overflow-wrap: anywhere; }
+.advanced-rules > .settings-disclosure { margin-inline: 0; }
+@media (max-width: 600px) {
+ .inbound-summary-row { grid-template-columns: minmax(0, 1fr) auto 60px; }
+ .inbound-summary-row > .inbound-source-summary { display: block; grid-column: 1 / -1; grid-row: 2; font-size: .75rem; }
+ .inbound-summary-row > button { grid-column: 3; grid-row: 1; }
+ .inbound-summary-labels { display: none; }
+}

@@ -181,16 +181,18 @@ describe("supplier configuration", () => {
     const {user, fetch} = setup();
     await screen.findByRole("button", {name: "复制 go-main 内部地址"});
     expect(screen.queryByRole("button", {name: /编辑/})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "添加供应商"}));
     await user.type(screen.getByLabelText("出口 ID"), "new-main");
     await user.type(screen.getByLabelText("真实 Origin"), "https://example.com");
     await user.click(screen.getByRole("button", {name: "添加"}));
     expect(fetch).toHaveBeenCalledWith("/api/suppliers", expect.objectContaining({method: "POST", body: JSON.stringify({id: "new-main", origin: "https://example.com", plugins: []})}));
     expect(await screen.findByText("已添加 new-main")).toBeVisible();
-    expect(screen.getByLabelText("出口 ID")).toHaveValue("");
+    expect(screen.queryByLabelText("出口 ID")).not.toBeInTheDocument();
   });
   it("retains form values when adding fails", async () => {
     const {user} = setup(409);
     await screen.findByRole("button", {name: "复制 go-main 内部地址"});
+    await user.click(screen.getByRole("button", {name: "添加供应商"}));
     await user.type(screen.getByLabelText("出口 ID"), "new-main");
     await user.type(screen.getByLabelText("真实 Origin"), "https://example.com");
     await user.click(screen.getByRole("button", {name: "添加"}));

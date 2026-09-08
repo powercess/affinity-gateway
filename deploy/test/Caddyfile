@@ -62,13 +62,3 @@
 http://127.0.0.1:8238 {
     respond /healthz "ok" 200
 }
-# Explicit operator contract: this listener is ONLY for clients whose
-# prompt_cache_key is their persisted per-conversation identifier. Not public.
-:8239 {
-    session_affinity {
-        secret_env SESSION_AFFINITY_SECRET
-        cache_key_as_session true
-        observe_id cache-contract
-    }
-    reverse_proxy capture:8002
-}

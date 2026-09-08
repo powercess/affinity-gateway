@@ -208,3 +208,17 @@ func canonicalID(s string) bool {
 	_, err := hex.DecodeString(s[6:])
 	return err == nil
 }
+
+func conversationSession(obj map[string]json.RawMessage) string {
+	var value string
+	if json.Unmarshal(obj["conversation"], &value) == nil && validID(value) {
+		return value
+	}
+	var ref struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(obj["conversation"], &ref) == nil && validID(ref.ID) {
+		return ref.ID
+	}
+	return ""
+}

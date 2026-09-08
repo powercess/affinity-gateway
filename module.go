@@ -29,6 +29,7 @@ type Handler struct {
 	BodyLimit         int64  `json:"body_limit,omitempty"`
 	CacheKeyAsSession bool   `json:"cache_key_as_session,omitempty"`
 	ObserveID         string `json:"observe_id,omitempty"`
+	inbound           *InboundRules
 	secret            string
 }
 
@@ -61,7 +62,18 @@ func (h *Handler) Provision(caddy.Context) error {
 		h.Policy = "strip"
 	}
 	h.secret = os.Getenv(h.SecretEnv)
-	return h.Validate()
+	if err := h.Validate(); err != nil {
+		return err
+	}
+	if h.Mode == "inbound" && h.ObserveID != "" {
+		if path := os.Getenv("SUPPLIER_CONFIG_FILE"); path != "" {
+			if err := inboundRules.configure(path + ".inbound.json"); err != nil {
+				return err
+			}
+		}
+		inboundRules.register(*h)
+	}
+	return nil
 }
 func (h *Handler) Validate() error {
 	if h.ObserveID != "" && !validID(h.ObserveID) {
@@ -114,6 +126,11 @@ func (e *affinityFailure) Error() string            { return e.message }
 func reject(status int, code, message string) error { return &affinityFailure{status, code, message} }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	if h.Mode == "inbound" {
+		rules := inboundRules.get(h)
+		h.inbound = &rules
+		h.BodyLimit = rules.BodyLimit
+	}
 	if h.ObserveID != "" {
 		return h.observeHTTP(w, r, next)
 	}
@@ -207,8 +224,17 @@ func (h Handler) serveHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 	if credential == "" {
 		return reject(401, "affinity_credential_required", "Credential required for session namespace")
 	}
+	rules := h.inbound
+	if rules == nil {
+		defaults := defaultInboundRules(h)
+		rules = &defaults
+	}
 	sid := ""
-	for _, name := range sessionHeaders {
+	for _, rule := range rules.Headers {
+		if !rule.Enabled {
+			continue
+		}
+		name := rule.Name
 		values := r.Header.Values(name)
 		if len(values) == 0 {
 			continue
@@ -224,52 +250,62 @@ func (h Handler) serveHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 			event.Source = name
 		}
 	}
-	b, err := h.readBody(r)
-	if err != nil {
-		return err
-	}
-	var obj map[string]json.RawMessage
-	if len(b) > 0 && (json.Unmarshal(b, &obj) != nil || obj == nil) {
-		return reject(400, "affinity_body_invalid", "JSON object required")
-	}
-	meta, err := metadataSession(obj)
-	if err != nil {
-		return reject(400, "affinity_identity_invalid", "Invalid structured metadata session identity")
-	}
-	if sid != "" && meta != "" && sid != meta {
-		return reject(400, "affinity_identity_conflict", "Header and metadata session IDs disagree")
-	}
-	if sid == "" {
-		sid = meta
-		if sid != "" {
-			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
-				event.Source = "metadata.user_id.session_id"
+	if rules.Mode == "strict" {
+		b, err := h.readBody(r)
+		if err != nil {
+			return err
+		}
+		var obj map[string]json.RawMessage
+		if len(b) > 0 && (json.Unmarshal(b, &obj) != nil || obj == nil) {
+			return reject(400, "affinity_body_invalid", "JSON object required")
+		}
+		meta := ""
+		if rules.Metadata {
+			meta, err = metadataSession(obj)
+		}
+		if err != nil {
+			return reject(400, "affinity_identity_invalid", "Invalid structured metadata session identity")
+		}
+		if sid != "" && meta != "" && sid != meta {
+			return reject(400, "affinity_identity_conflict", "Header and metadata session IDs disagree")
+		}
+		if sid == "" {
+			sid = meta
+			if sid != "" {
+				if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+					event.Source = "metadata.user_id.session_id"
+				}
 			}
 		}
-	}
-	if sid == "" {
-		sid = bodySession(b)
-		if sid != "" {
-			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
-				event.Source = "conversation"
+		if sid == "" && rules.Conversation {
+			sid = conversationSession(obj)
+			if sid != "" {
+				if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+					event.Source = "conversation"
+				}
 			}
 		}
-	}
-	if sid == "" && h.CacheKeyAsSession {
-		_ = json.Unmarshal(obj["prompt_cache_key"], &sid)
-		if sid != "" {
-			if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
-				event.Source = "prompt_cache_key"
+		if sid == "" && rules.CacheKey {
+			_ = json.Unmarshal(obj["prompt_cache_key"], &sid)
+			if sid != "" {
+				if event, ok := r.Context().Value(observationKey{}).(*Observation); ok {
+					event.Source = "prompt_cache_key"
+				}
 			}
-		}
-		if sid != "" && !validID(sid) {
-			return reject(400, "affinity_identity_invalid", "Invalid configured cache session identity")
+			if sid != "" && !validID(sid) {
+				return reject(400, "affinity_identity_invalid", "Invalid configured cache session identity")
+			}
 		}
 	}
 	if sid == "" {
 		return reject(400, "affinity_identity_required", "Provide X-Session-Id: keep it unchanged for this conversation and retries; use a different value for a new conversation. Content hashing and credential fallback are disabled.")
 	}
-	strip(r)
+	for _, rule := range rules.Headers {
+		if rule.Strip {
+			r.Header.Del(rule.Name)
+		}
+	}
+	r.Header.Del(internalHeader)
 	r.Header.Set(internalHeader, "sa:v1:"+derive(h.secret, "inbound:v1", credential, "conversation", sid))
 	return next.ServeHTTP(w, r)
 }

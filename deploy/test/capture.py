@@ -82,8 +82,7 @@ if __name__ == "__main__":
     for port, stage, target in [(8001, "native", "affinity-gateway:8236"),
                                 (8002, "canonical", "new-api:3000"),
                                 (8003, "egress", "affinity-gateway:8237"),
-                                (8004, "direct", "mock:8000"),
-                                (8005, "native", "affinity-gateway:8239")]:
+                                (8004, "direct", "mock:8000")]:
         server = ThreadingHTTPServer(("0.0.0.0", port), Tap)
         server.stage, server.target = stage, target
         threading.Thread(target=server.serve_forever, daemon=True).start()
