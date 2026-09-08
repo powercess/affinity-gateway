@@ -3,7 +3,7 @@
 <p align="center">模型 API 亲和网关 · 强会话亲和 · 入站与出站定制</p>
 
 <p align="center">
-  <a href="https://github.com/powercess/caddy-session-affinity/actions/workflows/ci.yml"><img src="https://github.com/powercess/caddy-session-affinity/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/powercess/affinity-gateway/actions/workflows/ci.yml"><img src="https://github.com/powercess/affinity-gateway/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
   <img src="https://img.shields.io/badge/Caddy-2.11.4-1F88C0" alt="Caddy 2.11.4">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19">
