@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var sessionHeaders = []string{"Session-Id", "Session_id", "Conversation-Id", "Conversation_id", "X-Session-Affinity", "X-Session-Id", "X-Opencode-Session", "Thread-Id", "X-Claude-Code-Session-Id"}
+var sessionHeaders = []string{"Session-Id", "Session_id", "Conversation-Id", "Conversation_id", "X-Session-Affinity", "X-Session-Id", "X-Opencode-Session", "Thread-Id", "X-Claude-Code-Session-Id", "X-Hermes-Session-Key"}
 
 const internalHeader = "X-Session-Affinity"
 
