@@ -28,6 +28,7 @@ type Handler struct {
 	Fallback          string `json:"fallback,omitempty"`
 	BodyLimit         int64  `json:"body_limit,omitempty"`
 	CacheKeyAsSession bool   `json:"cache_key_as_session,omitempty"`
+	IdentitySource    string `json:"identity_source,omitempty"`
 	ObserveID         string `json:"observe_id,omitempty"`
 	inbound           *InboundRules
 	secret            string
@@ -76,6 +77,12 @@ func (h *Handler) Provision(caddy.Context) error {
 	return nil
 }
 func (h *Handler) Validate() error {
+	if h.IdentitySource != "" && h.IdentitySource != "metadata" {
+		return fmt.Errorf("identity_source must be metadata or omitted")
+	}
+	if h.IdentitySource != "" && (h.Mode != "inbound" || h.CacheKeyAsSession) {
+		return fmt.Errorf("identity_source metadata requires inbound mode without cache_key_as_session")
+	}
 	if h.ObserveID != "" && !validID(h.ObserveID) {
 		return fmt.Errorf("invalid observe_id")
 	}

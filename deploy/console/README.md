@@ -5,7 +5,8 @@
 仓库根目录使用 just + Bash 管理 Docker Compose，不依赖宿主机 Node 或 Bun：
 
 ```bash
-just docker up        # 构建并后台启动，也可用 just up
+just docker up        # 复用已有镜像并后台启动，也可用 just up
+just up --build       # 需要时检查并重建全部开发镜像
 just status           # 状态，初始化完成时 seed 应为 Exited (0)
 just reload           # 重建前端和网关；不重启 new-api、数据库
 just reload web       # 仅前端
@@ -18,6 +19,15 @@ just down             # 停止容器，保留数据卷
 ```
 
 运行 `just` 列出命令。`just docker` 传递 Compose 子命令，但固定项目与配置文件，拒绝 `down -v`，避免误删绑定与数据库。`just test` 会产生真实的模拟供应商请求和消费日志，不是只读检查。前端自己的工具链保留在 `web/`，容器内完成 Node 构建。
+
+`just up` 复用本地已有镜像；首次缺少镜像时仍需下载或构建。修改源码后用
+`just reload web`、`just reload gateway` 或 `just reload new-api` 更新对应服务，
+也可用 `just up --build` 构建全部服务。前端日常开发用 `just web-dev` 热更新。
+
+网关和 new-api 的 Docker 构建使用 BuildKit 持久缓存保存 Go 模块与编译结果；
+前端已有 Bun 下载缓存。源码改变后重建可复用这些缓存，首次启用仍需预热。
+缓存保存在当前 Docker builder，`just down` 不会清除；切换 builder 或清理
+构建缓存后需要重新下载。缓存不进入最终运行镜像。
 
 `AFFINITY_TEST`、`CONSOLE_BIND`、`CONSOLE_PORT`、`TEST_PORT`、`AFFINITY_CONSOLE_PASSWORD` 可通过环境变量覆盖，脚本默认值与下面的容器环境一致；自定义后应在各次调用中保持一致。不自动保存密码到文件。更改这些环境变量应执行 `just up` 重建容器配置，`just reload config` 不能更新容器环境变量。
 

@@ -242,3 +242,26 @@ func TestRuleSaveFailurePreservesActiveRules(t *testing.T) {
 		t.Fatal("failed save changed active config")
 	}
 }
+
+func TestInboundRuleResponseProvenance(t *testing.T) {
+	h := configured(t, "inbound")
+	h.ObserveID = "main"
+	defaults := defaultInboundRules(*h)
+	s := &inboundRegistry{defaults: map[string]InboundRules{"main": defaults}, saved: map[string]InboundRules{}}
+	response := s.response()
+	if response["sources"].(map[string]string)["main"] != "default" {
+		t.Fatal("default origin missing")
+	}
+	saved := defaults
+	saved.Metadata = false
+	// Provenance must not be guessed from revision; imported rules can be revision zero.
+	s.saved["main"] = saved
+	response = s.response()
+	if response["sources"].(map[string]string)["main"] != "saved" || response["items"].([]InboundRules)[0].Metadata {
+		t.Fatal("saved rules and source do not match")
+	}
+	response["items"].([]InboundRules)[0].Headers[0].Enabled = false
+	if !s.saved["main"].Headers[0].Enabled {
+		t.Fatal("response aliases registry headers")
+	}
+}

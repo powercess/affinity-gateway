@@ -47,6 +47,15 @@ func defaultInboundRules(h Handler) InboundRules {
 			r.Headers = append(r.Headers, HeaderRule{name, true, true})
 		}
 	}
+	// Metadata describes the conversation; harness side-request headers may
+	// describe a distinct ephemeral invocation. Ignore them, but still strip them.
+	if h.IdentitySource == "metadata" {
+		r.Conversation = false
+		r.CacheKey = false
+		for i := range r.Headers {
+			r.Headers[i].Enabled = false
+		}
+	}
 	return r
 }
 func validateInboundRules(r *InboundRules) error {
@@ -152,6 +161,26 @@ func (s *inboundRegistry) list() []InboundRules {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Profile < rows[j].Profile })
 	return rows
 }
+
+// response keeps effective rules and their provenance in one registry snapshot.
+func (s *inboundRegistry) response() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows := []InboundRules{}
+	sources := map[string]string{}
+	for id, defaults := range s.defaults {
+		r := defaults
+		sources[id] = "default"
+		if saved, ok := s.saved[id]; ok {
+			r = saved
+			sources[id] = "saved"
+		}
+		rows = append(rows, cloneRules(r))
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Profile < rows[j].Profile })
+	return map[string]any{"items": rows, "sources": sources}
+}
+
 func (s *inboundRegistry) update(r InboundRules) error {
 	if err := validateInboundRules(&r); err != nil {
 		return err
@@ -204,7 +233,7 @@ func (s *inboundRegistry) update(r InboundRules) error {
 func (c *Console) serveInboundRules(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodGet {
-		return json.NewEncoder(w).Encode(map[string]any{"items": inboundRules.list()})
+		return json.NewEncoder(w).Encode(inboundRules.response())
 	}
 	if r.Method != http.MethodPut {
 		w.Header().Set("Allow", "GET, PUT")
@@ -231,7 +260,7 @@ func (c *Console) serveInboundRules(w http.ResponseWriter, r *http.Request) erro
 		http.Error(w, err.Error(), 409)
 		return nil
 	}
-	return json.NewEncoder(w).Encode(map[string]any{"items": inboundRules.list()})
+	return json.NewEncoder(w).Encode(inboundRules.response())
 }
 
 // Preview evaluates synthetic input without adding observations or storing request values.

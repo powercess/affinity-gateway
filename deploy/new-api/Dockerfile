@@ -7,7 +7,9 @@ RUN git apply --check /strict.patch && git apply /strict.patch
 COPY model/strict_affinity.go.in model/strict_affinity.go
 COPY middleware/strict_affinity.go.in middleware/strict_affinity.go
 COPY controller/strict_affinity.go.in controller/strict_affinity.go
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 FROM oven/bun:1.4.0 AS web
 WORKDIR /src/web
@@ -18,12 +20,16 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lock
 FROM source AS build
 ENV CGO_ENABLED=0 GOWORK=off
 COPY --from=web /src/web/dist ./web/dist
-RUN go build -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.25-strict.2' -o /new-api .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.25-strict.2' -o /new-api .
 
 FROM source AS unit
 COPY model/strict_affinity_test.go.in model/strict_affinity_test.go
 COPY relay/channel/strict_affinity_passthrough_test.go.in relay/channel/strict_affinity_passthrough_test.go
-RUN go test ./model -run '^TestStrictBindingAtomicAndDurable$' -count=1 && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go test ./model -run '^TestStrictBindingAtomicAndDurable$' -count=1 && \
     go test ./relay/channel -run '^TestStrictAffinity|^TestNonStrictRequestDoesNotImplicitlyPassAffinityIdentity$' -count=1
 
 FROM calciumion/new-api:v1.0.0-rc.25

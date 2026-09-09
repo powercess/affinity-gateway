@@ -9,6 +9,7 @@
             mode inbound
             secret_env SESSION_AFFINITY_SECRET
             observe_id main
+            identity_source metadata
         }
         reverse_proxy new-api:3000
     }

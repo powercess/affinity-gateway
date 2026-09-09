@@ -1142,3 +1142,30 @@ footer span {
  .inbound-summary-row > button { grid-column: 3; grid-row: 1; }
  .inbound-summary-labels { display: none; }
 }
+
+/* Keep the inbound strategy aligned with the drawer heading and disclosures. */
+.inbound-strategy { padding: 24px; display: grid; gap: 16px; }
+.inbound-strategy > label { display: grid; gap: 10px; font-size: .8125rem; font-weight: 500; }
+.inbound-strategy select { width: 100%; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--foreground); font: inherit; font-weight: 400; }
+.inbound-strategy select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.inbound-effective { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--secondary); font-size: .75rem; line-height: 1.6; }
+.inbound-effective-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.inbound-effective-heading > span { color: var(--muted-foreground); }
+.inbound-effective-heading > strong { font-weight: 500; }
+.inbound-effective p { margin: 5px 0 0; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.inbound-effective .inbound-draft-notice { color: var(--primary); }
+.inbound-rules-drawer .settings-savebar { margin-top: 16px; }
+@media (max-width: 600px) {
+ .inbound-rules-drawer [data-slot="sheet-header"] { padding-left: 16px; }
+ .inbound-strategy { padding: 20px 16px; }
+ .inbound-rules-drawer .settings-disclosure { margin-inline: 16px; }
+ .inbound-rules-drawer .advanced-rules > .settings-disclosure { margin-inline: 0; }
+}
+
+.inbound-strategy-note { display: flex; align-items: flex-start; gap: 6px; margin-top: -4px; }
+.inbound-strategy-note > p { margin: 0; font-size: .75rem; line-height: 1.65; color: var(--muted-foreground); }
+.inbound-help-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted-foreground); cursor: help; }
+.inbound-help-button:hover { color: var(--foreground); background: var(--secondary); }
+.inbound-help-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.inbound-help-tooltip { z-index: 100; max-width: min(340px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--foreground); box-shadow: 0 4px 16px rgb(0 0 0 / .12); font-size: .75rem; line-height: 1.7; overflow-wrap: anywhere; }
+.inbound-help-arrow { fill: var(--border); }

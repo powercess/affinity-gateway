@@ -3,7 +3,10 @@ ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY *.go ./
-RUN xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=/src --output /usr/bin/caddy
+# Keep downloaded modules and compiled packages across source changes.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=/src --output /usr/bin/caddy
 # All listeners use high ports. Remove xcaddy's file capability so cap_drop ALL
 # can execute the binary under rootless Docker.
 RUN setcap -r /usr/bin/caddy

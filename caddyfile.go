@@ -31,6 +31,8 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.SecretEnv = v
 			case "identity_scope":
 				h.IdentityScope = v
+			case "identity_source":
+				h.IdentitySource = v
 			case "output_header":
 				h.OutputHeader = v
 			case "policy":

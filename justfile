@@ -4,7 +4,7 @@ set positional-arguments
 default:
     @just --list
 
-# 构建并后台启动完整开发环境
+# 后台启动开发环境，复用已有镜像；传 --build 强制检查构建
 up *args:
     @bash scripts/mode.sh up "$@"
 

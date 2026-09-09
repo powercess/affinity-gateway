@@ -46,3 +46,11 @@ docker compose --env-file deploy/release.env -f deploy/compose.release.yaml up -
 模型 API：`:18343` · 控制台：`:18342`
 
 在控制台添加供应商后，将生成的内部 Base URL 填入 new-api 渠道。完整步骤见 [部署指南](docs/deployment.md) 和 [供应商配置](docs/configuration.md)。
+
+### 旁会话与主会话共用渠道
+
+Claude / omp Messages 专用入口可设置 `identity_source metadata`，仅将
+`metadata.user_id` JSON 字符串内的 `session_id` 作为亲和身份，忽略并清理会话头。
+这适配了 omp 旁请求“头是临时调用 ID、body 是主会话 ID”的行为，保留严格正文
+校验与缺身份拒绝。默认混合来源策略仍拒绝不一致。控制台已保存的规则优先，
+升级步骤与适用边界见 [部署说明](deploy/live/README.md#claude--omp-旁请求)。

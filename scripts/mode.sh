@@ -24,7 +24,7 @@ main() {
             (($# == 0)) || { fail 'status 不接受参数'; return 1; }
             compose ps -a
             ;;
-        up) compose up -d --build "$@" ;;
+        up) compose up -d "$@" ;;
         down)
             (($# == 0)) || { fail 'down 不接受参数，不删除数据卷'; return 1; }
             compose down

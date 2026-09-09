@@ -26,3 +26,28 @@
 出口增删即时生效，不需要 reload。`just live reload` 用于修改 Caddyfile 后验证并热加载。`just live status` 查看状态，`just live logs` 查看日志，`just live down` 停止但保留数据库卷。
 
 宿主机需要 Go、just、Docker Compose。真实环境变量文件已被 Git 忽略，出口映射保存在 Docker 数据卷。尚未填写供应商凭证并实际发起请求前，不代表真实供应商验收完成。
+
+### Claude / omp 旁请求
+
+本部署的 `identity_source metadata` 默认只采用结构化
+`metadata.user_id` JSON 字符串中的 `session_id`。omp 的 `/btw` 和 idle
+recap 会用 `主ID:side:新ID` 作为请求头，同时保留主会话 metadata；因此它们
+复用主会话的 canonical ID，并在同凭证、分组、模型下复用既有渠道绑定。
+所有已知会话头仍被清理，JSON/重复键/体积校验和缺身份拒绝仍有效。
+这不是随机降级，也不从 ID 前缀猜测父子关系。
+
+**已有控制台保存规则优先于 Caddyfile 默认值。** 升级后在控制台的入站
+`main` 配置的“会话识别策略”中选择“仅使用 metadata 会话”，检查并保存；该预设保持 strict，
+开启 metadata、关闭 conversation/cache_key，关闭所有头的识别并开启移除。
+保存使用 revision 检查，遇到冲突应重新加载，不覆盖其他操作员的修改。
+改前保留当前规则；回滚时恢复原规则。不要删除整个配置文件来强制重置。
+
+这会拒绝只有 header 的客户端；混合协议部署应使用独立入口。不同模型仍可能
+绑定不同渠道；只有单固定 key 渠道才保证相同账号。未实测的 harness 不应直接
+套用此契约，先确认 body 表达主会话而非每次调用 ID。验证范围见
+[旁会话测试报告](../../docs/side-session-harness-report.md)。
+
+控制台也可切回“请求头 + metadata”。同一页面中的切换会恢复此前组合规则；
+没有此前草稿时会启用当前配置的会话头，保存前请检查高级规则。
+页面单独显示当前生效策略、草稿是否保存，以及规则来自入口默认配置还是控制台。
+切回组合策略后，头/body 不一致的旁请求会再次被拒绝。

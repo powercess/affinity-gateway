@@ -17,6 +17,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - run: bash scripts/mode_test.sh
       - run: go test ./...
       - uses: oven-sh/setup-bun@v2
         with:

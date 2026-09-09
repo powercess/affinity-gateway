@@ -13,6 +13,8 @@ expect() { [[ "$1" == "$2" ]] || { echo "Expected: $2; actual: $1" >&2; exit 1; 
 main status
 expect "${calls[0]}" 'ps -a'
 calls=(); main docker up
+expect "${calls[0]}" 'up -d'
+calls=(); main up --build
 expect "${calls[0]}" 'up -d --build'
 calls=(); main reload
 expect "${calls[0]}" 'build console affinity-gateway'

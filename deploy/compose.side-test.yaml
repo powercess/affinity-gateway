@@ -1,0 +1,9 @@
+# Dedicated, disposable side-session test stack; combine with compose.test.yaml.
+services:
+  affinity-gateway:
+    image: caddy-session-affinity:side-test
+    environment:
+      AFFINITY_CONSOLE_PASSWORD: isolated-side-test-password-not-production
+    volumes:
+      - ./test/Caddyfile.side:/etc/caddy/Caddyfile:ro
+      - ./test/Caddyfile:/etc/caddy/test.Caddyfile:ro
