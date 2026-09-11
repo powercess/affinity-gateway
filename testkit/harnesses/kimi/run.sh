@@ -5,11 +5,20 @@
 # / kimi), not OpenAI-compatible base URLs alone, so PROTOCOL selects the type.
 # OpenAI-style types expect the /v1 prefix inside base_url; the anthropic type
 # does not.
+#
+# Extra env understood here:
+#   PROTOCOL  chat (default) | responses | messages | kimi
+#   MODE      run (default) | shell | exec
 set -euo pipefail
 
 source /opt/testkit/contract.sh
 
-harness_require BASE_URL API_KEY PROMPT
+MODE="${MODE:-run}"
+case "$MODE" in
+    run)        harness_require BASE_URL API_KEY PROMPT ;;
+    shell|exec) harness_require BASE_URL API_KEY ;;
+    *)          harness_die "unsupported MODE '$MODE' (run|shell|exec)" ;;
+esac
 harness_prepare_home
 
 MODEL="${MODEL:-gpt-4.1}"
@@ -42,6 +51,12 @@ config = {
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(config, handle, indent=2)
 PY
+
+cli="kimi --config-file ${CONFIG} --quiet --prompt \"your prompt\""
+
+if [ "$MODE" != "run" ]; then
+    harness_enter "$MODE" "$cli" "provider: $KIMI_TYPE @ $PROVIDER_BASE"
+fi
 
 args=(--config-file "$CONFIG" --quiet)
 if harness_resume; then

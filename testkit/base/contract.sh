@@ -78,3 +78,39 @@ run_harness() {
     fi
     python3 "$extractor" "$out"
 }
+
+# harness_enter <mode: shell|exec> <suggested-command> [note...]
+#
+# Hand a fully prepared environment to a human or an agent instead of running
+# one canned request. Used after the adapter has already generated its config,
+# so what the operator gets is a clean harness pointed at the tap - not an
+# empty container. The whole session is recorded to terminal.log, flushed on
+# every write so it can be read while the session is still running.
+harness_enter() {
+    local mode="$1" suggested="$2"
+    shift 2
+    local dir log note
+    dir="$(harness_log_dir)"
+    log="$dir/terminal.log"
+    {
+        echo "-----------------------------------------------------------"
+        echo " testkit harness session (${mode})"
+        echo "   workdir : $PWD"
+        echo "   home    : $HOME"
+        echo "   traffic : $BASE_URL  -- every request is recorded"
+        echo "   logs    : $dir"
+        for note in "$@"; do echo "   $note"; done
+        [ -n "$suggested" ] && echo "   try     : $suggested"
+        echo "   terminal transcript -> ${log} (live)"
+        echo "-----------------------------------------------------------"
+    } >&2
+
+    if [ "$mode" = "exec" ]; then
+        [ -n "${EXEC_COMMAND:-}" ] || harness_die "MODE=exec requires EXEC_COMMAND"
+        exec script -q -e -f -c "$EXEC_COMMAND" "$log"
+    fi
+    # Deliberately NOT a login shell: /etc/profile resets PATH and would drop
+    # the harness's own PATH entry (e.g. node_modules/.bin), so the CLI the
+    # banner just advertised would be "command not found".
+    exec script -q -e -f -c "bash" "$log"
+}

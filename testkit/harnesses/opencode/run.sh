@@ -4,11 +4,17 @@
 #
 # Extra env understood here:
 #   PROVIDER  provider id written into the generated config (default: affinity)
+#   MODE      run (default) | shell | exec
 set -euo pipefail
 
 source /opt/testkit/contract.sh
 
-harness_require BASE_URL API_KEY PROMPT
+MODE="${MODE:-run}"
+case "$MODE" in
+    run)        harness_require BASE_URL API_KEY PROMPT ;;
+    shell|exec) harness_require BASE_URL API_KEY ;;
+    *)          harness_die "unsupported MODE '$MODE' (run|shell|exec)" ;;
+esac
 harness_prepare_home
 
 MODEL="${MODEL:-gpt-5.2}"
@@ -46,6 +52,14 @@ PY
 export OPENCODE_CONFIG="$CONFIG"
 export API_KEY
 export OPENAI_API_KEY="$API_KEY"
+
+cli="opencode run --format json --model ${PROVIDER}/${MODEL} \"your prompt\""
+
+# shell/exec: everything above is the preparation; hand the result over instead
+# of firing one canned request.
+if [ "$MODE" != "run" ]; then
+    harness_enter "$MODE" "$cli" "config  : $CONFIG"
+fi
 
 args=(run --format json --model "$PROVIDER/$MODEL")
 if harness_resume; then

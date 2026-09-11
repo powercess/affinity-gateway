@@ -24,7 +24,7 @@ harness-*  ──(harness_net, internal)──▶  tap :8001  ──(backend)─
 | `pcap/Dockerfile` | alpine + tcpdump，L4 原始抓包 |
 | `compose.poc.yaml` | PoC 编排 |
 | `cases.json` | 用例：prompt、conversation、`expect_kind` 与对应判据 |
-| `scripts/` | `build` / `check-matrix` / `smoke` |
+| `scripts/` | `build` / `check-matrix` / `smoke` / `enter` |
 
 ## 锁定
 
@@ -92,9 +92,40 @@ bash testkit/scripts/check-matrix.sh                                          # 
 bash testkit/scripts/smoke.sh                                                 # 端到端 + 断言
 ```
 
-`just testkit-build` / `testkit-check` / `testkit-poc`。
+`just testkit-build` / `testkit-check` / `testkit-poc` / `testkit-shell` / `testkit-exec`。
 
 `APT_MIRROR` 接受完整 URI，默认 `http://deb.debian.org`。若代理改写镜像导致 apt 哈希校验失败，换一个可达镜像即可；该步骤已内置 5 次重试与最终二进制校验。
+
+## 手动测试
+
+批量用例之外，还可以直接进一个干净的 harness 手动折腾：
+
+```bash
+just testkit-shell opencode                      # 交互式 shell，整段会话录制
+just testkit-exec opencode 'opencode run --format json --model affinity/gpt-5.2 "hi"'
+MODEL=gpt-4.1 just testkit-shell kimi            # 透传 MODEL / PROTOCOL
+TESTKIT_RUN_ID=trial just testkit-shell opencode # 用独立的 run 目录
+```
+
+`enter.sh` 会把 `run.sh` 的前置准备全部做完（HOME/XDG 重定向、provider 配置生成、API key 环境变量），再把控制权交出去——所以进去的不是空容器，而是**已经指向 tap 的配置好的 harness**。banner 里会打印可以直接粘贴的 CLI 命令。
+
+- **容器一次性**：`compose run --rm`，退出即销毁。跨会话保留的是 run 目录。
+- **run 目录稳定**在 `artifacts/testkit/runs/shell/`，每个 harness 有独立的 `home/<harness>/`，所以 CLI 自己的会话状态能跨次延续（opencode 可以直接 `--continue`）。
+- **退出后不拆栈**，方便再进去；停止用 `docker compose -f testkit/compose.poc.yaml down`。
+- `enter.sh <harness> -- "<command>"` 是非交互版，给 agent 用：不需要 TTY，管道喂进去也能跑。
+
+会话期间实时产出，agent 可以在进行中就读：
+
+```
+artifacts/testkit/runs/shell/
+  logs/terminal.log   ← 敲了什么、CLI 回了什么（script -f，实时 flush）
+  capture.jsonl       ← 每个 HTTP 请求/响应，脱敏、带 trace
+  pcap/entry.pcap     ← 原始字节
+  supplier/           ← mock 侧收到的
+  case-runs.jsonl     ← 每次会话在 capture.jsonl 里的行区间（用 from/to 切片）
+```
+
+注意：TUI 类 CLI 的全屏重绘会让 `terminal.log` 充满 ANSI 转义，raw 录制保真但读之前建议剥掉；机器可读的权威记录是 `capture.jsonl`。
 
 ## 验证状态
 
