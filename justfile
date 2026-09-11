@@ -59,3 +59,15 @@ web-build:
 # 前端测试监听模式
 web-test-watch:
     cd web && bun run test:watch
+
+# 构建 testkit 基础镜像 + 全部 harness/抓包镜像
+testkit-build:
+    @bash testkit/scripts/build.sh
+
+# 校验 matrix.json 与 lockfile/compose 版本一致（不需要 Docker）
+testkit-check:
+    @bash testkit/scripts/check-matrix.sh
+
+# 端到端 PoC：mock + L7 tap + pcap + harness 矩阵 + 断言
+testkit-poc:
+    @bash testkit/scripts/smoke.sh
