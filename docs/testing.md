@@ -1,5 +1,7 @@
 # 测试环境与亲和验证方案
 
+> 可复现的本地测试台（harness 容器 + 分层抓包）见 [testkit/README.md](../testkit/README.md)。
+>
 > 当前执行口径以 [强亲和扩展 Harness 报告](strict-harness-report.md) 为准，包含 pi / Qwen Code / Kimi CLI、SQL 原子绑定和故障验证。以下保留早期方案与历史记录，不代表当前全部能力。
 
 > 已提供 deploy/compose.test.yaml、自动 seed.py、HTTP smoke 和完整链路 probe。

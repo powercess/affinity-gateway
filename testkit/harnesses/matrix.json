@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "description": "Harness matrix for the affinity testkit. Single source of truth for harness versions: scripts/lib.sh exports them for compose, and scripts/check-matrix.sh verifies they agree with the lockfiles. session_identity is verified against real traffic by the *-probe cases on every run.",
+  "toolchains": {
+    "ts": {"manager": "bun", "runtime": "bun", "note": "/usr/local/bin/node symlinks to bun"},
+    "python": {"manager": "uv", "runtime": "uv-managed CPython"}
+  },
+  "base": {
+    "image": "testkit/base:local",
+    "dockerfile": "base/Dockerfile"
+  },
+  "harnesses": [
+    {
+      "name": "opencode",
+      "family": "ts",
+      "distribution": "bun",
+      "package": "opencode-ai",
+      "version": "1.18.29",
+      "image": "testkit/harness-opencode:local",
+      "context": "harnesses/opencode",
+      "dockerfile": "harnesses/opencode/Dockerfile",
+      "lockfile": "harnesses/opencode/bun.lock",
+      "protocols": ["chat", "responses", "messages"],
+      "session_identity": {
+        "supply": "header",
+        "fields": ["x-session-affinity", "x-session-id"],
+        "note": "both headers carry the same value, stable across title/main/resume within one conversation"
+      }
+    },
+    {
+      "name": "kimi",
+      "family": "python",
+      "distribution": "uv",
+      "package": "kimi-cli",
+      "version": "1.50.0",
+      "image": "testkit/harness-kimi:local",
+      "context": "harnesses/kimi",
+      "dockerfile": "harnesses/kimi/Dockerfile",
+      "lockfile": "harnesses/kimi/uv.lock",
+      "protocols": ["chat", "responses", "messages", "kimi"],
+      "session_identity": {
+        "supply": "none",
+        "fields": [],
+        "note": "openai_legacy carries no session field in header or body; continuity is replayed history only"
+      }
+    }
+  ]
+}

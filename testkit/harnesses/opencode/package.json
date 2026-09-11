@@ -1,0 +1,12 @@
+{
+  "name": "testkit-harness-opencode",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Locked bun install of the OpenCode CLI for the affinity testkit",
+  "dependencies": {
+    "opencode-ai": "1.18.29"
+  },
+  "trustedDependencies": [
+    "opencode-ai"
+  ]
+}

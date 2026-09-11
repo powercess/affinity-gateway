@@ -1,0 +1,115 @@
+# Testkit proof-of-concept stack.
+#
+# It is deliberately self-contained: an offline mock upstream, an L7 tap, an
+# L4 pcap sidecar and two harness containers. Once this loop is trusted it is
+# the template for pointing the same tap/harness images at the real
+# affinity-gateway + new-api stack from deploy/compose.test.yaml.
+#
+# Layout:
+#
+#   harness-*  --(harness_net, internal)-->  tap :8001  --(backend)-->  mock :8000
+#                                              ^
+#                                        pcap sidecar
+#                                     (shares the tap netns)
+#
+# The tap is *in path* on purpose: the harness is configured with the tap's URL,
+# so capture never depends on guessing which packets belong to a test.
+name: affinity-testkit-poc
+
+services:
+  mock:
+    image: python:3.13-alpine
+    command: ["python", "/test/mock.py"]
+    environment:
+      MOCK_REPLY_CONFIG: /test/replies.json
+    volumes:
+      # Reuses the existing offline protocol mock from deploy/test (streaming
+      # Chat/Messages/Responses + deterministic reply pool).
+      - ../deploy/test:/test:ro
+      # The mock's own supplier-side capture is kept separate from the L7 tap so
+      # the two can be cross-checked instead of overwriting each other.
+      - ${TESTKIT_ARTIFACTS:?source testkit/scripts/lib.sh first}/supplier:/artifacts
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2).close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tap:
+    image: ${TESTKIT_CAPTURE_IMAGE:-testkit/capture:local}
+    build:
+      context: capture
+    environment:
+      CAPTURE_FILE: /artifacts/capture.jsonl
+      CAPTURE_HOPS: '[{"name":"entry","port":8001,"target":"http://mock:8000"}]'
+    volumes:
+      - ${TESTKIT_ARTIFACTS:?source testkit/scripts/lib.sh first}:/artifacts
+    networks: [backend, harness_net]
+    depends_on:
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8001), 2).close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pcap:
+    image: ${TESTKIT_PCAP_IMAGE:-testkit/pcap:local}
+    build:
+      context: pcap
+    # Ground-truth bytes for whatever the tap saw. Sharing the netns avoids
+    # capturing the whole bridge (noisy, needs host root) or trusting the L7
+    # tap's own accounting.
+    network_mode: "service:tap"
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes:
+      - ${TESTKIT_ARTIFACTS:?source testkit/scripts/lib.sh first}:/artifacts
+    command: ["-i", "any", "-s", "0", "-U", "-w", "/artifacts/pcap/entry.pcap"]
+    depends_on:
+      tap:
+        condition: service_healthy
+
+  harness-opencode:
+    profiles: ["harness"]
+    image: ${TESTKIT_OPENCODE_IMAGE:-testkit/harness-opencode:local}
+    build:
+      context: harnesses/opencode
+      args:
+        BASE_IMAGE: ${TESTKIT_BASE_IMAGE:-testkit/base:local}
+        HARNESS_VERSION: ${OPENCODE_VERSION:?source testkit/scripts/lib.sh first}
+    environment:
+      BASE_URL: http://tap:8001
+      HARNESS_HOME: /harness-home
+      HARNESS_LOG_DIR: /artifacts/logs
+    volumes:
+      - ${TESTKIT_ARTIFACTS:?source testkit/scripts/lib.sh first}:/artifacts
+    networks: [harness_net]
+    depends_on:
+      tap:
+        condition: service_healthy
+
+  harness-kimi:
+    profiles: ["harness"]
+    image: ${TESTKIT_KIMI_IMAGE:-testkit/harness-kimi:local}
+    build:
+      context: harnesses/kimi
+      args:
+        BASE_IMAGE: ${TESTKIT_BASE_IMAGE:-testkit/base:local}
+        HARNESS_VERSION: ${KIMI_VERSION:?source testkit/scripts/lib.sh first}
+    environment:
+      BASE_URL: http://tap:8001
+      HARNESS_HOME: /harness-home
+      HARNESS_LOG_DIR: /artifacts/logs
+    volumes:
+      - ${TESTKIT_ARTIFACTS:?source testkit/scripts/lib.sh first}:/artifacts
+    networks: [harness_net]
+    depends_on:
+      tap:
+        condition: service_healthy
+
+networks:
+  backend: {}
+  harness_net:
+    internal: true

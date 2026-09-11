@@ -1,0 +1,80 @@
+{
+  "api_key_sentinel": "testkit-fake-key-not-a-credential",
+  "expect_kinds": {
+    "reply": "stdout must equal expect byte for byte",
+    "probe": "the identity the harness actually supplies must match matrix.json session_identity",
+    "reject": "the harness must fail and the capture must show a 4xx containing expect_error; unused until a rejecting component is in the chain"
+  },
+  "cases": [
+    {
+      "name": "opencode-first",
+      "conversation": "opencode-main",
+      "service": "harness-opencode",
+      "harness": "opencode",
+      "model": "gpt-5.2",
+      "protocol": "chat",
+      "resume": false,
+      "expect_kind": "reply",
+      "prompt": "[mock:resume:1] Synthetic testkit check: reply with text only, do not use tools.",
+      "expect": "已记录测试口令：蓝鲸-42。"
+    },
+    {
+      "name": "opencode-resume",
+      "conversation": "opencode-main",
+      "service": "harness-opencode",
+      "harness": "opencode",
+      "model": "gpt-5.2",
+      "protocol": "chat",
+      "resume": true,
+      "expect_kind": "reply",
+      "prompt": "[mock:resume:2] Synthetic second turn: reply with text only, do not use tools.",
+      "expect": "会话已恢复，之前的测试口令是蓝鲸-42。"
+    },
+    {
+      "name": "kimi-first",
+      "conversation": "kimi-main",
+      "service": "harness-kimi",
+      "harness": "kimi",
+      "model": "gpt-4.1",
+      "protocol": "chat",
+      "resume": false,
+      "expect_kind": "reply",
+      "prompt": "[mock:resume:1] Synthetic testkit check: reply with text only, do not use tools.",
+      "expect": "已记录测试口令：蓝鲸-42。"
+    },
+    {
+      "name": "kimi-resume",
+      "conversation": "kimi-main",
+      "service": "harness-kimi",
+      "harness": "kimi",
+      "model": "gpt-4.1",
+      "protocol": "chat",
+      "resume": true,
+      "expect_kind": "reply",
+      "prompt": "[mock:resume:2] Synthetic second turn: reply with text only, do not use tools.",
+      "expect": "会话已恢复，之前的测试口令是蓝鲸-42。"
+    },
+    {
+      "name": "opencode-probe",
+      "conversation": "opencode-probe",
+      "service": "harness-opencode",
+      "harness": "opencode",
+      "model": "gpt-5.2",
+      "protocol": "chat",
+      "resume": false,
+      "expect_kind": "probe",
+      "prompt": "Reply with text only, do not use tools."
+    },
+    {
+      "name": "kimi-probe",
+      "conversation": "kimi-probe",
+      "service": "harness-kimi",
+      "harness": "kimi",
+      "model": "gpt-4.1",
+      "protocol": "chat",
+      "resume": false,
+      "expect_kind": "probe",
+      "prompt": "Reply with text only, do not use tools."
+    }
+  ]
+}
