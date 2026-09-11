@@ -15,6 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # main 是唯一的发布分支：tag 只允许打在 main 的提交上。
+      # 防止误在 dev/功能分支的提交上打 tag 而发布未晋升的代码。
+      - name: Ensure the tag is on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::tag ${GITHUB_REF_NAME} is not contained in origin/main; release only from main"
+            exit 1
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
