@@ -1,0 +1,113 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量填全，信息不足的问题往往要来回好几轮才能定位。
+
+        **提交前请脱敏**：不要贴真实供应商 Key、token、Cookie 或会话标识。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及的组件
+      description: 可多选
+      multiple: true
+      options:
+        - 入站网关（会话识别与注入）
+        - 出站网关（供应商适配）
+        - 强亲和判定与拒绝
+        - new-api 渠道透传
+        - Web 控制台
+        - 部署与编排（Docker / Compose）
+        - 构建与 CI
+        - 文档
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 发布 tag、镜像 digest，或源码构建时的 `git rev-parse --short HEAD`
+      placeholder: v0.1.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose（deploy/compose.release.yaml）
+        - 本地开发环境（just up）
+        - 裸机 Caddy + xcaddy
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统与架构，以及上游 new-api 的版本
+      placeholder: linux/arm64，new-api v1.0.0-rc.25
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小可复现步骤；并发或时序相关的问题请说明发生频率
+      placeholder: |
+        1. 控制台配置入站规则 ...
+        2. 发送请求 ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与亲和判定结果
+      description: Caddy 日志（just logs gateway）；若与亲和相关，附 new-api 中该请求的 channel_affinity.key_source / key_fp
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置（已脱敏）
+      description: session_affinity 配置块、控制台导出的入站规则，或出站供应商配置
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已移除真实供应商 Key、token、Cookie 等敏感信息
+          required: true
+        - label: 我已搜索现有 issue 与文档，确认不是重复问题
+          required: true

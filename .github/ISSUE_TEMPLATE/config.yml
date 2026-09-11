@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 部署与配置文档
+    url: https://github.com/powercess/affinity-gateway/blob/dev/docs/deployment.md
+    about: 安装、Compose 编排与供应商接入
+  - name: 分支模型与贡献指南
+    url: https://github.com/powercess/affinity-gateway/blob/dev/CONTRIBUTING.md
+    about: 提 PR 之前请先读这里：所有改动都向 dev 分支提 PR
