@@ -2,8 +2,9 @@ name: CI
 
 on:
   pull_request:
+    branches: [dev, main]
   push:
-    branches: [main]
+    branches: [dev, main]
 
 permissions:
   contents: read
@@ -36,7 +37,10 @@ jobs:
       - name: Check for committed API keys
         run: '! git grep -nE "sk-[A-Za-z0-9_-]{20,}" -- . ":(exclude)docs/opencode-go-native-report.md"'
 
+  # 三个镜像的构建最贵，只在 PR（含晋升 PR）和 main 上跑；
+  # dev 的日常 push 只需快速反馈，交给上面的 test job。
   containers:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
