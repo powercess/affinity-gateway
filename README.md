@@ -14,7 +14,8 @@
   <a href="docs/configuration.md">配置</a> ·
   <a href="docs/observability.md">控制台与 API</a> ·
   <a href="docs/development.md">开发</a> ·
-  <a href="docs/branching.md">分支模型</a>
+  <a href="docs/branching.md">分支模型</a> ·
+  <a href="CONTRIBUTING.md">贡献指南</a>
 </p>
 
 ## 核心功能
