@@ -57,6 +57,48 @@ func TestIdentityIsolationAndBodyReplay(t *testing.T) {
 	}
 }
 
+// The DSH official provider emits x-deepseek-harness-session-id on every
+// session-scoped request (main, session title and compaction share it), so it
+// must be a built-in identity source with no operator configuration.
+func TestDeepseekHarnessSessionHeader(t *testing.T) {
+	h := configured(t, "inbound")
+	run := func(header, value string) (string, int) {
+		r := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"messages":[]}`))
+		r.Header.Set("Authorization", "Bearer dsh")
+		r.Header.Set("X-Deepseek-Harness-User-Id", "installation-anonymous-user")
+		if header != "" {
+			r.Header.Set(header, value)
+		}
+		w := httptest.NewRecorder()
+		var id string
+		err := h.ServeHTTP(w, r, caddyhttp.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) error {
+			id = r.Header.Get(internalHeader)
+			if r.Header.Get("X-Deepseek-Harness-Session-Id") != "" {
+				t.Fatal("harness session header leaked upstream")
+			}
+			return nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id, w.Code
+	}
+	first, status := run("X-Deepseek-Harness-Session-Id", "dsh-session-a")
+	if status != 200 || !canonicalID(first) {
+		t.Fatalf("built-in harness header not accepted: status %d id %q", status, first)
+	}
+	if again, _ := run("X-Deepseek-Harness-Session-Id", "dsh-session-a"); again != first {
+		t.Fatal("same harness session did not stay stable")
+	}
+	if other, _ := run("X-Deepseek-Harness-Session-Id", "dsh-session-b"); other == first {
+		t.Fatal("distinct harness sessions collided")
+	}
+	// Per-installation attribution must never become the affinity identity.
+	if _, status := run("X-Deepseek-Harness-User-Id", "installation-anonymous-user"); status != 400 {
+		t.Fatalf("user-id header became an identity source: status %d", status)
+	}
+}
+
 func TestOutboundAndSSE(t *testing.T) {
 	h := configured(t, "outbound")
 	r := httptest.NewRequest("POST", "/v1/messages", nil)

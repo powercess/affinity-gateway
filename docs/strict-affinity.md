@@ -14,7 +14,11 @@ new-api 管理端通过只读接口 `GET /api/option/strict_affinity` 暴露强�
 
 ## 身份提取
 
-接收 Session-Id、X-Session-Id、X-Session-Affinity、X-Opencode-Session、Thread-Id、Conversation-Id、X-Claude-Code-Session-Id，以及已支持的结构化 metadata.user_id.session_id 或 conversation 资源 ID。
+接收 Session-Id、X-Session-Id、X-Session-Affinity、X-Opencode-Session、Thread-Id、Conversation-Id、X-Claude-Code-Session-Id、X-Hermes-Session-Key、X-Deepseek-Harness-Session-Id，以及已支持的结构化 metadata.user_id.session_id 或 conversation 资源 ID。
+
+DSH 官方供应商（dsh-llm-deepseek）对同一会话的主请求、标题生成和上下文压缩都会发送同一个 `X-Deepseek-Harness-Session-Id`，因此它是内置身份来源，无需操作员手工添加。它按会话区分，适合作为亲和身份；同一安装固定不变的 `X-Deepseek-Harness-User-Id` 不是会话身份，不参与识别，也不会被移除。
+
+内置来源只影响 Caddyfile 默认值。控制台已保存的入站规则优先于默认值，升级后不会自动获得新头；需要在对应 `observe_id` 的“身份请求头”中确认该头已启用并按需移除（见 [真实环境升级说明](../deploy/live/README.md#claude--omp-旁请求)），或在确认无自定义规则后重置到默认值。
 
 会话头重复、为空、超限、冲突，或与结构化 metadata 会话 ID 冲突时拒绝。始终检查 JSON，包括显式头已存在的情况；重复 JSON key、不可检查的压缩体、超出 body_limit 都拒绝，不在解析失败时改用凭据。入站成功不改写 body 字节。
 
