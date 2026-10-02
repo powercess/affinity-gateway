@@ -7,7 +7,7 @@ COPY package.json bun.lock ./
 COPY apps/console/package.json apps/console/package.json
 RUN bun install --frozen-lockfile
 COPY apps/console apps/console
-RUN bun --cwd apps/console run build
+RUN cd apps/console && bun run build
 
 # --- gateway ---------------------------------------------------------------
 FROM golang:1.23-alpine AS gateway
