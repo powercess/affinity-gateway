@@ -1,17 +1,9 @@
-# 构建产物
-*.out
-/bin/
-/build/
-/caddy
-
-# 本地配置
+node_modules/
+apps/console/dist/
+apps/console/.vite/
+apps/gateway/.cache/
+*.db
 .env
-*.local
-/deploy/secrets/
-/artifacts/
-__pycache__/
+.DS_Store
 
-# Frontend
-/web/node_modules/
-/web/dist/
-/web/coverage/
+.data/

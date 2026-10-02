@@ -1,0 +1,16 @@
+{
+  "name": "affinity-gateway",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/console"
+  ],
+  "scripts": {
+    "dev": "bun --cwd apps/console dev",
+    "build": "bun --cwd apps/console build",
+    "typecheck": "bun --cwd apps/console typecheck",
+    "test": "bun --cwd apps/console test",
+    "gateway:dev": "cd apps/gateway && go run ./cmd/affinity-gateway",
+    "gateway:test": "cd apps/gateway && go test ./..."
+  }
+}

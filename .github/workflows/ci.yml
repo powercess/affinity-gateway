@@ -10,48 +10,51 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  gateway:
+    name: Gateway (Go)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
-      - run: bash scripts/mode_test.sh
+          go-version-file: apps/gateway/go.mod
+          cache-dependency-path: apps/gateway/go.sum
+      - run: go vet ./...
+        working-directory: apps/gateway
       - run: go test ./...
+        working-directory: apps/gateway
+
+  console:
+    name: Console (Bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('.bun-version', 'web/bun.lock') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('.bun-version', 'bun.lock') }}
           restore-keys: ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
-        working-directory: web
-      - run: bun run test
-        working-directory: web
+      - run: bun run typecheck
       - run: bun run build
-        working-directory: web
-      - name: Check for committed API keys
-        run: '! git grep -nE "sk-[A-Za-z0-9_-]{20,}" -- . ":(exclude)docs/opencode-go-native-report.md"'
+      - name: Check for committed secrets
+        run: '! git grep -nE "(sk-[A-Za-z0-9_-]{20,}|oc_sk_[A-Za-z0-9_-]{10,})" -- .'
 
-  # 三个镜像的构建最贵，只在 PR（含晋升 PR）和 main 上跑；
-  # dev 的日常 push 只需快速反馈，交给上面的 test job。
-  containers:
+  image:
+    name: Container build
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - run: docker build -f deploy/Dockerfile -t affinity-gateway:ci .
-      - run: docker build -f deploy/console/Dockerfile -t affinity-console:ci .
-      - run: docker build --target unit -f deploy/new-api/Dockerfile -t affinity-new-api-unit:ci deploy/new-api
-      - name: Validate release Compose
-        env:
-          SESSION_AFFINITY_SECRET: ci-only-affinity-secret-at-least-32
-          NEW_API_SESSION_SECRET: ci-only-new-api-secret-at-least-32
-          POSTGRES_PASSWORD: ci-only-postgres-password
-          AFFINITY_CONSOLE_PASSWORD: ci-only-console-password-at-least-32
-        run: docker compose -f deploy/compose.release.yaml config --quiet
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          tags: affinity-gateway:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

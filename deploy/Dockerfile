@@ -1,26 +1,39 @@
-FROM caddy:2.11.4-builder AS builder
-ARG TARGETOS TARGETARCH
-WORKDIR /src
-COPY go.mod go.sum ./
-COPY *.go ./
-# Keep downloaded modules and compiled packages across source changes.
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    xcaddy build v2.11.4 --with github.com/powercess/caddy-session-affinity=/src --output /usr/bin/caddy
-# All listeners use high ports. Remove xcaddy's file capability so cap_drop ALL
-# can execute the binary under rootless Docker.
-RUN setcap -r /usr/bin/caddy
+# syntax=docker/dockerfile:1
 
-FROM caddy:2.11.4-alpine
+# --- console ---------------------------------------------------------------
+FROM oven/bun:1.4.2-alpine AS console
+WORKDIR /src
+COPY package.json bun.lock ./
+COPY apps/console/package.json apps/console/package.json
+RUN bun install --frozen-lockfile
+COPY apps/console apps/console
+RUN bun --cwd apps/console run build
+
+# --- gateway ---------------------------------------------------------------
+FROM golang:1.23-alpine AS gateway
+WORKDIR /src/apps/gateway
+RUN apk add --no-cache git
+COPY apps/gateway/go.mod apps/gateway/go.sum ./
+RUN go mod download
+COPY apps/gateway ./
 ARG VERSION=dev
 ARG REVISION=unknown
-ARG BUILD_DATE=unknown
-LABEL org.opencontainers.image.title="Session Affinity Gateway" \
-      org.opencontainers.image.source="https://github.com/powercess/caddy-session-affinity" \
-      org.opencontainers.image.version="$VERSION" \
-      org.opencontainers.image.revision="$REVISION" \
-      org.opencontainers.image.created="$BUILD_DATE"
-COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-COPY deploy/entrypoint.sh /usr/local/bin/affinity-entrypoint
-ENTRYPOINT ["/bin/sh", "/usr/local/bin/affinity-entrypoint"]
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" \
+    -o /out/affinity-gateway ./cmd/affinity-gateway
+
+# --- runtime ---------------------------------------------------------------
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates \
+    && adduser -D -u 10001 affinity \
+    && mkdir -p /data \
+    && chown affinity:affinity /data
+COPY --from=gateway /out/affinity-gateway /app/affinity-gateway
+COPY --from=console /src/apps/console/dist /app/console
+ENV AFFINITY_CONFIG_FILE=/data/config.json \
+    AFFINITY_CONSOLE_DIR=/app/console
+WORKDIR /app
+USER affinity
+VOLUME ["/data"]
+EXPOSE 8236
+ENTRYPOINT ["/app/affinity-gateway"]

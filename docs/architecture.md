@@ -1,191 +1,158 @@
-# 架构设计
+# Architecture
 
-> 历史方案，不再作为实施规范。当前以 [强亲和契约](strict-affinity.md) 为准：Caddy 确定性 HMAC＋new-api 持久原子绑定；软亲和与内容哈希暂缓。以下零 fork、凭据兜底、进程内映射等描述均是旧讨论，不代表当前行为。
+The gateway uses a single HTTP listener (`:8236`) and separates traffic by path.
 
-## 1. 总体拓扑
-
-```
-客户端(omp / Hermes / RikkaHub / Claude Code / 任意 OpenAI/Anthropic 兼容源)
-        │  https://new-api.powercess.com
-        ▼
-┌───────────────────────────────────────────────┐
-│ Caddy 入站代理(:8236)                          │
-│  ① 会话识别(优先级见下)                        │
-│  ② UUIDv7 生成 / 映射复用                      │
-│  ③ 注入 x-opencode-session + X-Session-Id     │
-│  ④ 原样转发给 new-api(body 逐字节透传,流式)     │
-└───────────────────┬───────────────────────────┘
-                    ▼
-        new-api (:8235)   ← 零 fork、零配置改造
-        │  原生渠道亲和:按 header/gjson 会话键锁渠道
-        │  出站:默认只带 Content-Type / Accept(剥客户端头)
-        ▼
-┌───────────────────────────────────────────────┐
-│ Caddy 出站代理(可选)                           │
-│  按目标供应商适配/剥离请求头                   │
-└───────────────────┬───────────────────────────┘
-                    ▼
-   opencode.ai / DeepSeek / 火山方舟
+```text
+client ──▶ /v1/*          inbound  ──▶ downstream
+downstream ─▶ /egress/{id}/* egress  ──▶ provider
+console  ──▶ /api/v1/*    control plane
+browser  ──▶ /ui/*        console SPA (built assets, when present)
 ```
 
-## 2. 为什么外部代理"托管"入站与出站
+The gateway serves the built console (`apps/console/dist`, override with
+`AFFINITY_CONSOLE_DIR`) under `/ui` on the same `:8236` listener. Everything
+else is inbound traffic and is forwarded transparently, so the gateway behaves
+as a plain pass-through unless a route matches. Unknown console asset paths
+return `404`; other `/ui/*` paths fall back to the SPA.
 
-### 2.1 new-api 的事实边界(实测结论,详见 experiments.md)
+## Request path
 
-| 能力 | new-api 行为 | 结论 |
-|---|---|---|
-| 会话亲和 | 原生支持 `request_header` 与 `gjson` 亲和键 | 入站只需注入稳定会话头即可锁渠道 |
-| 会话 ID 生成 | **不能生成**;只能透传已有值 | 生成职责必须外置(客户端或代理) |
-| 出站头透传 | **默认剥离**;需渠道显式配 `header_override` / `pass_headers` | 出站头由配置层或代理接管 |
+Each proxied request follows the same stages:
 
-因此"托管"意味着:
+1. **Resolve route** — inbound requests match the longest active prefix (an
+   empty prefix is the single global catch-all); egress requests are selected by
+   the `{route-id}` segment. Inbound forwarding is transparent: the request path
+   is never rewritten, the prefix only chooses the route.
+2. **Resolve session** (fixed three-tier cascade):
+   1. dedicated session headers — `X-Affinity-Session-Id`, `X-Session-Id`,
+      `Session-Id`, `X-Conversation-Id`, `Thread-Id`, `X-Opencode-Session`,
+      `X-Claude-Code-Session-Id`, `X-Hermes-Session-Key`,
+      `X-Deepseek-Harness-Session-Id`, … (most specific first);
+   2. protocol fields in the JSON body — `metadata.session_id` /
+      `conversation_id` / `thread_id`, top-level `session_id`, `conversation`,
+      `prompt_cache_key`, `previous_response_id`, …;
+   3. **history fingerprint** — for stateless clients that send only the OpenAI
+      `messages` array, the gateway keeps a bounded index of conversation
+      fingerprints and reuses the session when the current history extends a
+      previously seen prefix (robust to the history growing each turn).
 
-- **入站托管(生成)**:new-api 不产会话 ID,由 Caddy 入站插件负责识别会话、生成/复用 UUIDv7、注入请求头与 body 标识;
-- **出站托管(适配)**:new-api 默认把会话头剥掉,若要按供应商补头/改头,由 Caddy 出站插件接管——按"会话 ID + 目标站点"决策,这是 new-api 配置层做不到的"动态"逻辑。
+   This is soft affinity: an existing id is reused and a missing one is derived
+   or generated, but no request is ever locked to a downstream or provider.
+3. **Forward** — the request is reverse-proxied to the route target. The matched
+   inbound path is preserved; the `/egress/{id}` prefix is stripped. Streaming
+   responses pass through unchanged.
+4. **Record** — redacted routing metadata (direction, route, model, status,
+   session, latency) is appended to an in-memory ring buffer.
 
-### 2.2 入站与出站的职责切分
+Inbound requests carry the resolved identity to the downstream as
+`X-Affinity-Session-Id`. Egress requests are forwarded as-is so the gateway does
+not leak internal headers to providers; mapping is the job of an egress plugin.
 
-| 方向 | 职责 | 谁做 | 为什么 |
-|---|---|---|---|
-| 入站 | 会话识别优先级 → UUIDv7 生成/映射 → 注入双头 | Caddy 入站插件 | new-api 不生成 |
-| 入站 | (可选)改写 body `metadata.user_id` 兜底 | Caddy 入站插件 | 兼容只认 gjson 的规则 |
-| 中转 | 渠道亲和锁渠道 | new-api 原生 | 零改造 |
-| 中转 | 出站透传已有会话头 | new-api 渠道配置(`header_override`/`pass_headers`) | 配置层可做原样搬运 |
-| 出站 | 按供应商动态变换/剥离头 | Caddy 出站插件(可选) | new-api 配置层只能静态透传 |
+## Plugin chains
 
-## 3. 会话识别优先级(入站)
+Each route stores an ordered list of plugin ids. Plugins are Lua programs
+persisted with the config and edited in the console (`/api/v1/plugins`). Each
+plugin declares a direction (`inbound`, `egress` or `both`); a route may only
+reference plugins that match its direction.
 
+Plugins run in a restricted Lua sandbox (gopher-lua):
+
+- no files, no network, no `os`/`io`/`require`/`dofile`, 250 ms timeout;
+- a mutable request view `ctx` with `ctx:set_header`, `ctx:remove_header`,
+  `ctx:set_body` and fields (`session`, `session_source`, `route_id`, `method`,
+  `path`, `body`, `headers`, `query`);
+- `json.decode` / `json.encode` for body editing;
+- `session.opencode(value, binding)` which derives a stable OpenCode session id.
+
+Bundled plugins:
+
+- `session.inject-metadata` (inbound) writes the resolved session into
+  `metadata.session_id`.
+- `opencode.session` (egress) sets `x-opencode-session` from the session.
+
+Gateway-internal headers (currently `X-Affinity-Session-Id`) are always removed
+on egress by the Go core before forwarding, so providers never see them. This is
+default behavior, not a plugin.
+
+### Affinity across a relay
+
+Some relays (for example new-api) strip custom request headers. To keep affinity
+intact the inbound plugin writes the session id into the request **body**, which
+relays forward verbatim, and the egress plugin reads it back out:
+
+```text
+client → inbound: resolve session, metadata.session_id = <id>
+       → relay (drops headers, forwards body)
+       → egress: read metadata.session_id, set x-opencode-session
+       → provider
 ```
-1. body metadata.user_id        (Anthropic 协议,omp / Claude Code)
-2. header x-opencode-session    (opencode 生态)
-3. header X-Session-Id          (通用会话头)
-4. body user                    (OpenAI 兼容的 user 字段)
-5. 兜底:Authorization token 指纹 → 映射表查稳定 ID
-```
 
-- 命中已有标识 → **复用**(同一会话永不漂移)
-- 无标识 → 查映射表:`<token|指纹>` → UUIDv7(存在则复用,不存在则生成)
-- 每次请求随机生成 → **禁止**(破坏会话连续性与供应商缓存)
+`session.opencode` derives `ses_` + 12 hex + 14 base62 (30 chars) from the
+gateway secret with HMAC-SHA256, so the same session always maps to the same
+provider session without exposing the original id. The secret lives in
+`.data/secret` and is never returned by the API.
 
-## 4. 会话映射表
+## Configuration
 
-- 存储:进程内存 `map[token|指纹 → UUIDv7]`
-- 生成:UUIDv7(时间有序)
-- 生命周期:进程重启可丢失(旧会话缓存过期无害)
-- 扩展点:可选 Redis / SQLite 持久化
+Configuration is a single JSON document (`.data/config.json`, override with
+`AFFINITY_CONFIG_FILE`). Writes are validated and persisted atomically enough for
+single-process use, and the runtime only reads immutable snapshots. The console
+is the only expected writer.
 
-## 5. 出站供应商适配(规划)
-
-出站插件按"目标站点"决定请求头策略,每个供应商一份适配模板:
-
-| 供应商 | 需要的头 | 说明 |
-|---|---|---|
-| opencode.ai | `x-opencode-session`(会话稳定 ID) | 强制,缺则 2026-09-06 起报错 |
-| DeepSeek | 一般无需会话头 | 仅透传必要头,避免多余头 |
-| 火山方舟 | 按渠道要求 | 预留扩展模板 |
-
-关键约束:
-
-- **只有目标渠道需要会话头时才注入**——避免把会话 ID 泄漏给不需要的供应商;
-- 出站代理可兜底**剥离**非目标渠道的会话头(白名单制),对冲"宽松透传"风险;
-- 若仅需原样透传,优先用 new-api 渠道配置(`header_override: {"x-opencode-session": "{client_header:x-opencode-session}"}` 或 `pass_headers`),无需出站代理。
-
-## 5.1 出站接管机制:Caddy 怎么截获 new-api 的出站流量
-
-### 原理(源码确认)
-
-new-api 出站请求 URL 完全由**渠道配置的 `base_url`** 决定:
-
-- `relay/common/relay_utils.go:26` — `GetFullRequestURL(baseURL, requestURL)` = `base_url + 请求路径`
-- 各适配器 `GetRequestURL`(openai/claude/...)均调用它拼接
-
-因此"接管出站" = **把渠道 `base_url` 从真实供应商改为本机 Caddy 出站代理地址**,new-api 的所有出站流量先经 Caddy,再由 Caddy 转发真实供应商。全程不改 new-api 代码。
-
-### 供应商识别:每渠道一个 path 前缀(推荐)
-
-new-api 一个渠道只能配一个 `base_url`,但出站代理要区分多个供应商。用 **path 前缀分流**:
-
-```caddyfile
-:8237 {
-    handle /opencode/* {
-        uri strip_prefix /opencode          # 剥掉标记前缀,保留 /v1/...
-        session_affinity outbound { vendor opencode ... }
-        reverse_proxy https://api.opencode.ai
-    }
-    handle /deepseek/* {
-        uri strip_prefix /deepseek
-        session_affinity outbound { vendor deepseek ... }
-        reverse_proxy https://api.deepseek.com
-    }
+```json
+{
+  "version": 1,
+  "listen": ":8236",
+  "inbound": [
+    { "id": "default", "name": "默认入站", "path": "/v1/chat/completions",
+      "target": "http://127.0.0.1:9000", "state": "active",
+      "plugins": ["session.extract", "session.generate"] }
+  ],
+  "egress": [
+    { "id": "openai", "name": "OpenAI", "path": "/egress/openai",
+      "target": "https://api.openai.com", "state": "active",
+      "plugins": ["provider.session", "strip.internal"] }
+  ]
 }
 ```
 
-对应 new-api 渠道配置:
+`state` is `active` or `inactive`; inactive routes are ignored by the proxy.
+Egress `path` is always `/egress/{id}`. Inbound paths must be unique.
 
-| 渠道 | 原 base_url | 改为 |
-|---|---|---|
-| opencode | `https://api.opencode.ai` | `http://127.0.0.1:8237/opencode` |
-| deepseek | `https://api.deepseek.com` | `http://127.0.0.1:8237/deepseek` |
+### Local runtime state
 
-每渠道一条 handle,供应商识别零歧义;亲和已在 new-api 锁渠道,出站代理只做头适配、不重新路由。(备选:单端口动态上游按 body model 猜供应商,会与 new-api 渠道映射重复,不推荐。)
+Alongside `config.json`, the gateway persists runtime state under the same
+`.data` directory:
 
-### 会话 ID 如何到达出站代理
+- `secret` — gateway secret for deterministic provider session ids;
+- `token` — control-plane access token (override with `AFFINITY_TOKEN`);
+- `requests.json` — the last request records (already redacted), reloaded on start;
+- `metrics.json` — counters, reloaded on start;
+- `affinity.json` — the conversation index used by tier-3 affinity.
 
-new-api 默认剥离客户端头(实测+源码),入站注入的 `x-opencode-session` 到出站 Caddy 时默认已丢失。两条恢复路径:
+Writes are debounced and flushed on shutdown (`SIGINT`/`SIGTERM`), so the
+console and session affinity survive a restart.
 
-| 方式 | 做法 | 适用 |
-|---|---|---|
-| **A. 渠道透传 header(推荐)** | opencode 渠道配 `header_override: {"x-opencode-session": "{client_header:x-opencode-session}"}`,new-api 出站时"还原"入站会话头 | 会话头需到达供应商,零解析成本 |
-| **B. body 透传** | `metadata.user_id` 跟随 body 透传(new-api 转发默认透传 body),出站代理从 body 提取 | 需要解析流式 body,有成本;仅当方式 A 不可行 |
+## Control API
 
-### 完整链路与要点
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/config` | full config snapshot |
+| GET | `/api/v1/status` | mode and route counts |
+| GET | `/api/v1/plugins` | plugin definitions (with Lua source) |
+| PUT/DELETE | `/api/v1/plugins/{id}` | upsert / delete a plugin |
+| GET | `/api/v1/metrics` | request / session / egress counters |
+| GET | `/api/v1/requests` | recent request summaries |
+| GET | `/api/v1/requests/{id}` | full trace: headers + body (redacted) |
+| GET/POST | `/api/v1/inbound` | list / create inbound routes |
+| GET/PUT/DELETE | `/api/v1/inbound/{id}` | read / update / delete |
+| GET/POST | `/api/v1/egress` | list / create egress routes |
+| GET/PUT/DELETE | `/api/v1/egress/{id}` | read / update / delete |
+| GET | `/healthz` | process health |
 
-```
-客户端
-  → 入站 Caddy(:8236):识别 → UUIDv7 生成/映射 → 注入 x-opencode-session / X-Session-Id
-  → new-api(:8235):亲和按 header 锁渠道
-      渠道 base_url = http://127.0.0.1:8237/<vendor>
-      渠道 header_override 还原会话头(方式 A)
-  → 出站 Caddy(:8237):按 path 识别供应商 → 适配/剥离头 → 转发真实供应商
-  → opencode.ai / DeepSeek / 火山方舟
-```
+Errors are returned as `{ "error": "message" }` with `400`, `404` or `409`.
 
-要点与坑:
-
-1. **`Authorization` 头**:new-api 出站带的供应商 key,Caddy `reverse_proxy` 默认透传,不得改写;
-2. **path 前缀必须剥离**:否则真实供应商收到 `/opencode/v1/...` 报 404,`uri strip_prefix` 解决;
-3. **流式 SSE**:Caddy reverse_proxy 原生逐字节透传、不缓冲;
-4. **TLS**:new-api → 出站 Caddy 本地 http;出站 Caddy → 供应商 https;
-5. **职责边界**:仅"原样透传会话头" → 模式 A(new-api 渠道配置,无需出站代理);要"会话 ID → 供应商专属格式 / 差异化策略 / 剥离多余头" → 模式 B(出站代理)。
-
-
-## 6. 三种部署模式
-
-### 模式 A(推荐,最简):仅入站代理 + new-api 配置透传
-
-```
-客户端 → Caddy入站(:8236) → new-api(:8235) → 供应商
-```
-
-- 入站插件:识别/生成/注入
-- new-api:亲和锁渠道 + 渠道配 `header_override` 透传会话头
-- 无出站代理;最轻、最稳
-
-### 模式 B(完整):入站 + 出站双代理
-
-```
-客户端 → Caddy入站(:8236) → new-api(:8235) → Caddy出站 → 供应商
-```
-
-- 出站插件:按供应商动态变换/剥离头
-- 适合"会话 ID → 供应商专属格式"等配置层做不到的场景
-
-### 模式 C(直连场景):客户端直连 opencode 的兜底
-
-客户端直连 `api.opencode.ai` 时,由入站代理统一注入会话头再转发——覆盖不经 new-api 的流量。
-
-## 7. 非目标
-
-- 不改 new-api 源码(不 fork)
-- 不做多租户计费、鉴权管理(new-api 已具备)
-- 不替代 llmgateway(仅借鉴其会话亲和思路)
+The whole `/api/v1/*` control plane requires `Authorization: Bearer <token>`
+(the token is generated into `.data/token` on first start, or set via
+`AFFINITY_TOKEN`). `/healthz`, the console assets, `/v1/*` and `/egress/*` stay
+public.
