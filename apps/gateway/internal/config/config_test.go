@@ -71,23 +71,34 @@ func findRoute(list []Route, id string) (Route, bool) {
 	return Route{}, false
 }
 
-func TestSingleNoPrefixInbound(t *testing.T) {
+func TestInboundIsSingleTarget(t *testing.T) {
 	s, err := NewStore(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The default inbound route has no prefix and is active.
-	if _, err := s.Add("inbound", Route{ID: "dup", Name: "dup", Target: "http://a.example", State: StateActive}); err == nil {
-		t.Fatalf("expected only one active no-prefix inbound route")
+	route, ok := s.Snapshot().InboundTarget()
+	if !ok {
+		t.Fatalf("expected an active inbound target")
 	}
-	if _, err := s.Add("inbound", Route{ID: "site1", Name: "site1", Path: "/site1", Target: "http://a.example", State: StateActive}); err != nil {
-		t.Fatalf("prefixed route should be allowed: %v", err)
+	if route.Target != "http://127.0.0.1:9000" {
+		t.Fatalf("unexpected default target %q", route.Target)
 	}
-	if _, err := s.Add("inbound", Route{ID: "dormant", Name: "dormant", Target: "http://a.example", State: StateInactive}); err != nil {
-		t.Fatalf("inactive no-prefix route should be allowed: %v", err)
+	// Inbound route paths are not used; they normalize to empty.
+	added, err := s.Add("inbound", Route{ID: "site1", Name: "site1", Path: "/site1", Target: "http://a.example", State: StateActive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added.Path != "" {
+		t.Fatalf("inbound path should be cleared, got %q", added.Path)
+	}
+	_, err = s.Update("inbound", "default", Route{Name: "默认入站", Target: "http://127.0.0.1:9000", State: StateInactive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Snapshot().InboundTarget(); !ok {
+		t.Fatalf("expected site1 to become the active target")
 	}
 }
-
 func TestValidateRejectsBadTarget(t *testing.T) {
 	s, err := NewStore(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {

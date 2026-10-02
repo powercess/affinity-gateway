@@ -108,25 +108,18 @@ export function RouteDialog({ open, onOpenChange, direction, initial, plugins, s
           </div>
           <p className="-mt-2 text-[11px] text-muted-foreground">{t('routes.form.idHint')}</p>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="route-path">{direction === 'inbound' ? t('routes.form.prefix') : t('routes.path')}</Label>
-            {direction === 'inbound' ? (
-              <>
-                <Input
-                  id="route-path"
-                  value={form.path}
-                  onChange={(event) => update('path', event.target.value)}
-                  placeholder="/site1"
-                />
-                <p className="text-[11px] text-muted-foreground">{t('routes.form.prefixHint')}</p>
-              </>
-            ) : (
+          {direction === 'inbound' ? (
+            <div className="flex flex-col gap-1 rounded-lg bg-muted px-4 py-3">
+              <span className="text-xs font-medium">{t('routes.form.inboundFixed')}</span>
+              <p className="text-[11px] text-muted-foreground">{t('routes.form.inboundFixedHint')}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="route-path">{t('routes.path')}</Label>
               <Input id="route-path" value={`/egress/${form.id || '{id}'}`} readOnly className="opacity-70" />
-            )}
-            {direction === 'egress' && (
               <p className="text-[11px] text-muted-foreground">{t('routes.form.pathLocked')}</p>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="route-target">{t('routes.form.target')}</Label>

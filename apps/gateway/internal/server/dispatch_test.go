@@ -10,21 +10,20 @@ import (
 	"github.com/powercess/affinity-gateway/apps/gateway/internal/config"
 )
 
-// TestCustomPrefixRouteIsDispatched ensures non-/v1 prefixes like /site1 reach
-// the inbound proxy instead of the console fallback. The path is forwarded
-// unchanged (transparent pass-through).
-func TestCustomPrefixRouteIsDispatched(t *testing.T) {
+// TestOnlyV1IsProxied ensures the gateway proxies /v1/ and rejects every other
+// path, so it never becomes a web reverse proxy (which caused redirect loops).
+func TestOnlyV1IsProxied(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	t.Setenv("AFFINITY_CONFIG_FILE", configPath)
 
+	srv, got := upstream(t)
 	store, err := config.NewStore(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, got := upstream(t)
-	if _, err := store.Add(config.Inbound, config.Route{
-		ID: "site1", Name: "site1", Path: "/site1", Target: srv.URL, State: config.StateActive,
+	if _, err := store.Update(config.Inbound, "default", config.Route{
+		ID: "default", Name: "default", Target: srv.URL, State: config.StateActive,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -33,15 +32,25 @@ func TestCustomPrefixRouteIsDispatched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/site1/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
 
+	// /v1/ is proxied.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("expected /v1/ to be proxied, got %d %s", rec.Code, rec.Body.String())
 	}
-	if got.Path != "/site1/v1/chat/completions" {
-		t.Fatalf("expected full path forwarded, got %q", got.Path)
+	if got.Path != "/v1/chat/completions" {
+		t.Fatalf("unexpected forwarded path %q", got.Path)
+	}
+
+	// Non-/v1 paths are rejected and never forwarded.
+	for _, p := range []string{"/", "/api/status", "/assets/app.js", "/site1/v1/chat/completions"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for %q, got %d", p, rec.Code)
+		}
 	}
 }

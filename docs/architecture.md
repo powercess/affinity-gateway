@@ -3,7 +3,7 @@
 The gateway uses a single HTTP listener (`:8236`) and separates traffic by path.
 
 ```text
-client ──▶ /v1/*          inbound  ──▶ downstream
+client ──▶ /v1/*          inbound  ──▶ downstream (single target)
 downstream ─▶ /egress/{id}/* egress  ──▶ provider
 console  ──▶ /api/v1/*    control plane
 browser  ──▶ /ui/*        console SPA (built assets, when present)
@@ -19,10 +19,10 @@ return `404`; other `/ui/*` paths fall back to the SPA.
 
 Each proxied request follows the same stages:
 
-1. **Resolve route** — inbound requests match the longest active prefix (an
-   empty prefix is the single global catch-all); egress requests are selected by
-   the `{route-id}` segment. Inbound forwarding is transparent: the request path
-   is never rewritten, the prefix only chooses the route.
+1. **Resolve route** — ingress only proxies `/v1/`; everything else is rejected
+   so the gateway can never act as a web reverse proxy. Inbound uses a **single
+   target** (the first active inbound route) and forwards the path unchanged.
+   Egress requests are selected by the `/egress/{route-id}` segment.
 2. **Resolve session** (fixed three-tier cascade):
    1. dedicated session headers — `X-Affinity-Session-Id`, `X-Session-Id`,
       `Session-Id`, `X-Conversation-Id`, `Thread-Id`, `X-Opencode-Session`,
@@ -117,7 +117,8 @@ is the only expected writer.
 ```
 
 `state` is `active` or `inactive`; inactive routes are ignored by the proxy.
-Egress `path` is always `/egress/{id}`. Inbound paths must be unique.
+Egress `path` is always `/egress/{id}`. Inbound is a **single target** at
+`/v1/`; the inbound `path` field is unused.
 
 ### Local runtime state
 

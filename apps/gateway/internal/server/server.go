@@ -131,8 +131,13 @@ func build() (*gateway, error) {
 	} else {
 		log.Print("console assets not found; /ui is unavailable")
 	}
-	// Everything else is inbound traffic, forwarded transparently.
-	mux.Handle("/", inbound)
+	// Only /v1/ is proxied on ingress. The gateway is an AI endpoint, not a web
+	// reverse proxy: anything else is rejected so it can never forward normal
+	// HTTP traffic (and never loop back into a downstream site).
+	mux.Handle(config.InboundPrefix, inbound)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeProxyError(w, http.StatusNotFound, "affinity-gateway only proxies /v1/")
+	})
 
 	return &gateway{handler: mux, store: store, recorder: recorder, metrics: metrics, resolver: resolver}, nil
 }

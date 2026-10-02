@@ -42,6 +42,21 @@ type Route struct {
 	Plugins []string `json:"plugins"`
 }
 
+// InboundPrefix is the only path prefix the gateway proxies on ingress. Every
+// other path is rejected so the gateway never becomes a web reverse proxy.
+const InboundPrefix = "/v1/"
+
+// InboundTarget returns the active inbound downstream, if any. Inbound is a
+// single target: the first active inbound route wins.
+func (c Config) InboundTarget() (Route, bool) {
+	for _, r := range c.Inbound {
+		if r.State == StateActive {
+			return r, true
+		}
+	}
+	return Route{}, false
+}
+
 // Plugin is a Lua request transformation definition.
 type Plugin struct {
 	ID          string `json:"id"`
@@ -357,9 +372,6 @@ func (s *Store) Add(direction string, route Route) (Route, error) {
 	if err := checkUnique(*list, norm, ""); err != nil {
 		return Route{}, err
 	}
-	if err := checkSinglePrefix(*list, norm, ""); err != nil {
-		return Route{}, err
-	}
 	*list = append(*list, norm)
 	return norm, s.commitLocked()
 }
@@ -391,9 +403,6 @@ func (s *Store) Update(direction, id string, route Route) (Route, error) {
 		return Route{}, err
 	}
 	if err := checkUnique(*list, norm, id); err != nil {
-		return Route{}, err
-	}
-	if err := checkSinglePrefix(*list, norm, id); err != nil {
 		return Route{}, err
 	}
 	(*list)[index] = norm
@@ -494,23 +503,7 @@ func checkUnique(list []Route, candidate Route, skipID string) error {
 	return nil
 }
 
-// checkSinglePrefix enforces that at most one active inbound route has no
 // prefix (the global catch-all).
-func checkSinglePrefix(list []Route, candidate Route, skipID string) error {
-	if candidate.Path != "" || candidate.State != StateActive {
-		return nil
-	}
-	for _, r := range list {
-		if r.ID == skipID {
-			continue
-		}
-		if r.Path == "" && r.State == StateActive {
-			return errors.New("无前缀入站路由只能启用一个")
-		}
-	}
-	return nil
-}
-
 func normalizeRoute(direction string, route Route) (Route, error) {
 	route.ID = strings.TrimSpace(route.ID)
 	route.Name = strings.TrimSpace(route.Name)
@@ -544,10 +537,8 @@ func normalizeRoute(direction string, route Route) (Route, error) {
 	}
 	route.Plugins = cleanStrings(route.Plugins)
 	if direction == Inbound {
-		route.Path = strings.TrimSpace(route.Path)
-		if route.Path != "" && !strings.HasPrefix(route.Path, "/") {
-			return Route{}, errors.New("入站前缀必须以 / 开头（留空表示无前缀）")
-		}
+		// Inbound is a single target at /v1/; the path field is not used.
+		route.Path = ""
 	} else {
 		route.Path = "/egress/" + route.ID
 	}

@@ -134,9 +134,7 @@ export function RoutesPage({ direction, routes, plugins, t, onReload }: Props) {
                   <div>
                     <h3 className="text-sm font-semibold">{route.name}</h3>
                     <code className="text-[11px] text-muted-foreground">
-                      {direction === 'inbound'
-                        ? `${t('routes.prefix')}: ${route.path || t('routes.noPrefix')}`
-                        : route.path}
+                      {direction === 'inbound' ? `/v1/ · ${t('routes.singleTarget')}` : route.path}
                     </code>
                   </div>
                 </div>

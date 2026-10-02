@@ -69,9 +69,9 @@ func (p proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.egress {
 		route, rest, ok = resolveEgress(cfg, r.URL.Path)
 	} else {
-		// Inbound paths are matched only to pick a route; the request path is
-		// always forwarded unchanged (transparent pass-through).
-		route, ok = resolveInbound(cfg, r.URL.Path)
+		// Inbound is a single target and only /v1/ is proxied; the request path
+		// is forwarded unchanged.
+		route, ok = cfg.InboundTarget()
 		rest = r.URL.Path
 	}
 
@@ -97,8 +97,8 @@ func (p proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !ok {
-		record(http.StatusNotFound, "route not configured")
-		writeProxyError(w, http.StatusNotFound, "route not configured")
+		record(http.StatusNotFound, "inbound target not configured")
+		writeProxyError(w, http.StatusNotFound, "inbound target not configured")
 		return
 	}
 
@@ -248,24 +248,6 @@ func redactHeaders(header http.Header) map[string][]string {
 	return out
 }
 
-func resolveInbound(c config.Config, path string) (config.Route, bool) {
-	var best config.Route
-	found := false
-	for _, route := range c.Inbound {
-		if route.State != config.StateActive {
-			continue
-		}
-		if !pathMatches(route.Path, path) {
-			continue
-		}
-		if !found || len(route.Path) > len(best.Path) {
-			best = route
-			found = true
-		}
-	}
-	return best, found
-}
-
 func resolveEgress(c config.Config, path string) (config.Route, string, bool) {
 	rest := strings.TrimPrefix(path, "/egress/")
 	parts := strings.SplitN(rest, "/", 2)
@@ -283,18 +265,6 @@ func resolveEgress(c config.Config, path string) (config.Route, string, bool) {
 		}
 	}
 	return config.Route{}, "", false
-}
-
-func pathMatches(routePath, requestPath string) bool {
-	if routePath == "" {
-		// No prefix: the global catch-all matches everything.
-		return true
-	}
-	if routePath == requestPath {
-		return true
-	}
-	base := strings.TrimRight(routePath, "/")
-	return strings.HasPrefix(requestPath, base+"/")
 }
 
 func joinPath(base, rest string) string {

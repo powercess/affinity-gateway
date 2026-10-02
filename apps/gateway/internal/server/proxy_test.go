@@ -27,10 +27,8 @@ func newStore(t *testing.T, inbound, egress []config.Route) *config.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// reset to an empty baseline then add the requested routes
-	if err := store.Delete(config.Inbound, "default"); err != nil && len(inbound) > 0 {
-		t.Fatal(err)
-	}
+	// Drop the default inbound route, then add the requested ones.
+	_ = store.Delete(config.Inbound, "default")
 	for _, r := range inbound {
 		if _, err := store.Add(config.Inbound, r); err != nil {
 			t.Fatal(err)
@@ -62,7 +60,7 @@ func upstream(t *testing.T) (*httptest.Server, *echo) {
 
 func TestInboundGeneratesSession(t *testing.T) {
 	srv, got := upstream(t)
-	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Path: "/v1/chat/completions", Target: srv.URL, State: config.StateActive}}, nil)
+	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Target: srv.URL, State: config.StateActive}}, nil)
 	metrics := &observe.Metrics{}
 	recorder := observe.NewRecorder(10)
 	h := proxyHandler{store: store, metrics: metrics, recorder: recorder}
@@ -92,7 +90,7 @@ func TestInboundGeneratesSession(t *testing.T) {
 
 func TestInboundReusesHeaderSession(t *testing.T) {
 	srv, got := upstream(t)
-	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Path: "/v1/chat/completions", Target: srv.URL, State: config.StateActive}}, nil)
+	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Target: srv.URL, State: config.StateActive}}, nil)
 	h := proxyHandler{store: store, metrics: &observe.Metrics{}, recorder: observe.NewRecorder(10)}
 
 	rec := httptest.NewRecorder()
@@ -144,7 +142,7 @@ func TestStreamingResponsePassesThrough(t *testing.T) {
 	}))
 	t.Cleanup(stream.Close)
 
-	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Path: "/v1/chat/completions", Target: stream.URL, State: config.StateActive}}, nil)
+	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Target: stream.URL, State: config.StateActive}}, nil)
 	h := proxyHandler{store: store, metrics: &observe.Metrics{}, recorder: observe.NewRecorder(10)}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m","stream":true}`))
@@ -183,7 +181,7 @@ func TestEgressStripsInternalHeadersByDefault(t *testing.T) {
 
 func TestInboundHistoryAffinity(t *testing.T) {
 	srv, _ := upstream(t)
-	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Path: "/v1/chat/completions", Target: srv.URL, State: config.StateActive}}, nil)
+	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Target: srv.URL, State: config.StateActive}}, nil)
 	recorder := observe.NewRecorder(10)
 	h := proxyHandler{store: store, resolver: affinity.NewResolver(), metrics: &observe.Metrics{}, recorder: recorder}
 
@@ -207,43 +205,11 @@ func TestInboundHistoryAffinity(t *testing.T) {
 	}
 }
 
-func TestInboundForwardsFullPath(t *testing.T) {
-	srv, got := upstream(t)
-	store := newStore(t, []config.Route{{
-		ID: "site1", Name: "Site1", Path: "/site1", Target: srv.URL, State: config.StateActive,
-	}}, nil)
-	h := proxyHandler{store: store, metrics: &observe.Metrics{}, recorder: observe.NewRecorder(10)}
-
-	req := httptest.NewRequest(http.MethodPost, "/site1/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
-	req.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if got.Path != "/site1/v1/chat/completions" {
-		t.Fatalf("expected full path forwarded, got %q", got.Path)
-	}
-}
-
-func TestNoPrefixInboundMatchesEverything(t *testing.T) {
-	srv, got := upstream(t)
-	store := newStore(t, []config.Route{{
-		ID: "all", Name: "all", Path: "", Target: srv.URL, State: config.StateActive,
-	}}, nil)
-	h := proxyHandler{store: store, metrics: &observe.Metrics{}, recorder: observe.NewRecorder(10)}
-
-	req := httptest.NewRequest(http.MethodPost, "/anything/here", strings.NewReader(`{"model":"m"}`))
-	req.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if got.Path != "/anything/here" {
-		t.Fatalf("expected catch-all to forward full path, got %q", got.Path)
-	}
-}
-
-func TestInboundUnknownRoute(t *testing.T) {
-	store := newStore(t, []config.Route{{ID: "chat", Name: "Chat", Path: "/v1/chat/completions", Target: "http://127.0.0.1:1", State: config.StateActive}}, nil)
+func TestInboundWithoutTarget(t *testing.T) {
+	store := newStore(t, nil, nil)
 	h := proxyHandler{store: store, metrics: &observe.Metrics{}, recorder: observe.NewRecorder(10)}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/unknown", strings.NewReader("{}")))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}")))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
