@@ -1,28 +1,24 @@
 # Architecture
 
-The gateway uses a single HTTP listener (`:8236`) and separates traffic by path.
+The gateway runs three listeners:
 
 ```text
-client ──▶ /v1/*          inbound  ──▶ downstream (single target)
-downstream ─▶ /egress/{id}/* egress  ──▶ provider
-console  ──▶ /api/v1/*    control plane
-browser  ──▶ /ui/*        console SPA (built assets, when present)
+:8236  inbound   public AI entry point; every path is passed through to the
+                 single inbound target (unchanged)
+:8237  egress    downstream relay entry point; serves only /egress/{id}/*
+:8238  console   web UI at /ui plus the token-protected control API at /api/v1
 ```
 
-The gateway serves the built console (`apps/console/dist`, override with
-`AFFINITY_CONSOLE_DIR`) under `/ui` on the same `:8236` listener. Everything
-else is inbound traffic and is forwarded transparently, so the gateway behaves
-as a plain pass-through unless a route matches. Unknown console asset paths
-return `404`; other `/ui/*` paths fall back to the SPA.
+The public proxy ports never expose the console or the control plane, so the
+proxy and the UI are fully separated.
 
 ## Request path
 
 Each proxied request follows the same stages:
 
-1. **Resolve route** — ingress only proxies `/v1/`; everything else is rejected
-   so the gateway can never act as a web reverse proxy. Inbound uses a **single
-   target** (the first active inbound route) and forwards the path unchanged.
-   Egress requests are selected by the `/egress/{route-id}` segment.
+1. **Resolve route** — the inbound port passes every path through unchanged to
+   the **single inbound target** (the first active inbound route). The egress
+   port serves only `/egress/{route-id}` and strips that prefix.
 2. **Resolve session** (fixed three-tier cascade):
    1. dedicated session headers — `X-Affinity-Session-Id`, `X-Session-Id`,
       `Session-Id`, `X-Conversation-Id`, `Thread-Id`, `X-Opencode-Session`,
@@ -144,16 +140,17 @@ console and session affinity survive a restart.
 | PUT/DELETE | `/api/v1/plugins/{id}` | upsert / delete a plugin |
 | GET | `/api/v1/metrics` | request / session / egress counters |
 | GET | `/api/v1/requests` | recent request summaries |
-| GET | `/api/v1/requests/{id}` | full trace: headers + body (redacted) |
+| GET | `/api/v1/requests/{id}` | full trace: headers (redacted) |
 | GET/POST | `/api/v1/inbound` | list / create inbound routes |
 | GET/PUT/DELETE | `/api/v1/inbound/{id}` | read / update / delete |
 | GET/POST | `/api/v1/egress` | list / create egress routes |
 | GET/PUT/DELETE | `/api/v1/egress/{id}` | read / update / delete |
-| GET | `/healthz` | process health |
+| GET | `/healthz` | process health (all three ports) |
 
 Errors are returned as `{ "error": "message" }` with `400`, `404` or `409`.
 
-The whole `/api/v1/*` control plane requires `Authorization: Bearer <token>`
-(the token is generated into `.data/token` on first start, or set via
-`AFFINITY_TOKEN`). `/healthz`, the console assets, `/v1/*` and `/egress/*` stay
-public.
+The whole `/api/v1/*` control plane lives on the **console port** (`:8238`) and
+requires `Authorization: Bearer <token>` (the token is generated into
+`.data/token` on first start, or set via `AFFINITY_TOKEN`). `/healthz` is public
+on every port; the inbound and egress ports never serve the console or the
+control API.

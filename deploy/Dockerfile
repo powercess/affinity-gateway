@@ -35,5 +35,5 @@ ENV AFFINITY_CONFIG_FILE=/data/config.json \
 WORKDIR /app
 USER affinity
 VOLUME ["/data"]
-EXPOSE 8236
+EXPOSE 8236 8237 8238
 ENTRYPOINT ["/app/affinity-gateway"]

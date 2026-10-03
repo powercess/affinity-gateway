@@ -1,10 +1,17 @@
-// Package server wires the shared :8236 listener: the console, inbound
-// proxying, egress proxying and the control API.
+// Package server runs the three gateway listeners:
+//
+//   - inbound: public AI entry point (/v1/ and, for pass-through, any path)
+//   - egress:  provider entry point for downstream relays (/egress/{id}/*)
+//   - console: the web UI and the token-protected control API (/ui, /api/v1)
+//
+// Keeping them on separate ports means the public proxy port never exposes the
+// console or the control plane.
 package server
 
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -60,11 +68,14 @@ func isDir(p string) bool {
 }
 
 type gateway struct {
-	handler  http.Handler
 	store    *config.Store
 	recorder *observe.Recorder
 	metrics  *observe.Metrics
 	resolver *affinity.Resolver
+
+	inbound http.Handler
+	egress  http.Handler
+	console http.Handler
 }
 
 // Flush persists pending runtime state.
@@ -76,14 +87,13 @@ func (g *gateway) Flush() {
 	}
 }
 
-// New builds the gateway handler. The returned handler owns config, metrics and
-// the persisted request recorder.
+// New builds the gateway handlers. The inbound handler is returned for tests.
 func New() (http.Handler, error) {
 	g, err := build()
 	if err != nil {
 		return nil, err
 	}
-	return g.handler, nil
+	return g.inbound, nil
 }
 
 func build() (*gateway, error) {
@@ -112,16 +122,40 @@ func build() (*gateway, error) {
 	}
 	api := control.Handler{Store: store, Metrics: metrics, Recorder: recorder, Registry: registry}
 
-	inbound := proxyHandler{store: store, plugins: registry, resolver: resolver, metrics: metrics, recorder: recorder}
-	egress := proxyHandler{store: store, plugins: registry, resolver: resolver, egress: true, metrics: metrics, recorder: recorder}
+	g := &gateway{store: store, recorder: recorder, metrics: metrics, resolver: resolver}
+	g.inbound = newInboundHandler(store, registry, resolver, metrics, recorder)
+	g.egress = newEgressHandler(store, registry, resolver, metrics, recorder)
+	g.console = newConsoleHandler(store, api)
+	return g, nil
+}
 
+// newInboundHandler proxies inbound traffic to the single inbound target. Every
+// path is forwarded unchanged (plain pass-through).
+func newInboundHandler(store *config.Store, registry *plugin.Registry, resolver *affinity.Resolver, metrics *observe.Metrics, recorder *observe.Recorder) http.Handler {
+	proxy := proxyHandler{store: store, plugins: registry, resolver: resolver, metrics: metrics, recorder: recorder}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("/", proxy)
+	return mux
+}
+
+// newEgressHandler serves only /egress/{route-id}/*.
+func newEgressHandler(store *config.Store, registry *plugin.Registry, resolver *affinity.Resolver, metrics *observe.Metrics, recorder *observe.Recorder) http.Handler {
+	proxy := proxyHandler{store: store, plugins: registry, resolver: resolver, egress: true, metrics: metrics, recorder: recorder}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("/egress/", proxy)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeProxyError(w, http.StatusNotFound, "affinity-gateway egress expects /egress/{route-id}/...")
 	})
+	return mux
+}
+
+// newConsoleHandler serves the web UI and the token-protected control API.
+func newConsoleHandler(store *config.Store, api control.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", healthz)
 	mux.Handle("/api/v1/", requireToken(store, api))
-	mux.Handle("/egress/", egress)
 	if dir := resolveConsoleDir(); dir != "" {
 		log.Printf("serving console at /ui from %s", dir)
 		mux.Handle("/ui/", consoleHandler(dir))
@@ -131,15 +165,15 @@ func build() (*gateway, error) {
 	} else {
 		log.Print("console assets not found; /ui is unavailable")
 	}
-	// Only /v1/ is proxied on ingress. The gateway is an AI endpoint, not a web
-	// reverse proxy: anything else is rejected so it can never forward normal
-	// HTTP traffic (and never loop back into a downstream site).
-	mux.Handle(config.InboundPrefix, inbound)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeProxyError(w, http.StatusNotFound, "affinity-gateway only proxies /v1/")
+		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
+	return mux
+}
 
-	return &gateway{handler: mux, store: store, recorder: recorder, metrics: metrics, resolver: resolver}, nil
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
 }
 
 // requireToken protects the control plane with the gateway access token.
@@ -200,36 +234,62 @@ func consoleHandler(consoleDir string) http.Handler {
 	})
 }
 
-// ListenAndServe starts the gateway on the configured address. AFFINITY_LISTEN
-// overrides the persisted value, which is useful for tests and containers.
+// envAddr lets tests/containers override a listener address.
+func envAddr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// ListenAndServe starts the three listeners.
 func ListenAndServe() error {
 	g, err := build()
 	if err != nil {
 		return err
 	}
-	addr := os.Getenv("AFFINITY_LISTEN")
-	if addr == "" {
-		addr = g.store.Listen()
+	l := g.store.Listeners()
+	inboundAddr := envAddr("AFFINITY_LISTEN", l.Inbound)
+	egressAddr := envAddr("AFFINITY_EGRESS_LISTEN", l.Egress)
+	consoleAddr := envAddr("AFFINITY_CONSOLE_LISTEN", l.Console)
+
+	servers := []*http.Server{
+		{Addr: inboundAddr, Handler: g.inbound},
+		{Addr: egressAddr, Handler: g.egress},
+		{Addr: consoleAddr, Handler: g.console},
+	}
+	log.Printf("inbound listening on %s", inboundAddr)
+	log.Printf("egress  listening on %s", egressAddr)
+	log.Printf("console listening on %s (control API: %s/ui, token required)", consoleAddr, consoleAddr)
+
+	errCh := make(chan error, len(servers))
+	var wg sync.WaitGroup
+	for _, srv := range servers {
+		wg.Add(1)
+		go func(s *http.Server) {
+			defer wg.Done()
+			if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}(srv)
 	}
 
-	server := &http.Server{Addr: addr, Handler: g.handler}
-	log.Print("control API authentication is enabled")
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-stop
-		log.Print("shutting down")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = server.Shutdown(ctx)
-	}()
 
-	log.Printf("affinity gateway listening on %s", addr)
-	serveErr := server.ListenAndServe()
-	// Flush on the main path so the state is written before the process exits.
-	g.Flush()
-	if serveErr != nil && serveErr != http.ErrServerClosed {
-		return serveErr
+	var serveErr error
+	select {
+	case serveErr = <-errCh:
+	case <-stop:
+		log.Print("shutting down")
 	}
-	return nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		_ = srv.Shutdown(ctx)
+	}
+	wg.Wait()
+	g.Flush()
+	return serveErr
 }

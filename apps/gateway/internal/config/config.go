@@ -67,12 +67,36 @@ type Plugin struct {
 
 // Config is the complete persisted control-plane state.
 type Config struct {
-	Version   int       `json:"version"`
-	Listen    string    `json:"listen"`
-	Inbound   []Route   `json:"inbound"`
-	Egress    []Route   `json:"egress"`
-	Plugins   []Plugin  `json:"plugins"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Version       int       `json:"version"`
+	Listen        string    `json:"listen"`         // inbound (public AI entry)
+	EgressListen  string    `json:"egress_listen"`  // egress provider entry
+	ConsoleListen string    `json:"console_listen"` // console + control API
+	Inbound       []Route   `json:"inbound"`
+	Egress        []Route   `json:"egress"`
+	Plugins       []Plugin  `json:"plugins"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Listeners holds the three addresses the gateway serves on.
+type Listeners struct {
+	Inbound string
+	Egress  string
+	Console string
+}
+
+// Listeners returns the three configured addresses, filling in defaults.
+func (c Config) Listeners() Listeners {
+	l := Listeners{Inbound: c.Listen, Egress: c.EgressListen, Console: c.ConsoleListen}
+	if l.Inbound == "" {
+		l.Inbound = ":8236"
+	}
+	if l.Egress == "" {
+		l.Egress = ":8237"
+	}
+	if l.Console == "" {
+		l.Console = ":8238"
+	}
+	return l
 }
 
 // Store owns the in-memory config and its persistence file.
@@ -111,8 +135,10 @@ end
 // Default returns the first-run configuration.
 func Default() Config {
 	return Config{
-		Version: 1,
-		Listen:  ":8236",
+		Version:       1,
+		Listen:        ":8236",
+		EgressListen:  ":8237",
+		ConsoleListen: ":8238",
 		Inbound: []Route{{
 			ID:      "default",
 			Name:    "默认入站",
@@ -158,6 +184,12 @@ func (s *Store) load() error {
 	}
 	if s.cfg.Listen == "" {
 		s.cfg.Listen = ":8236"
+	}
+	if s.cfg.EgressListen == "" {
+		s.cfg.EgressListen = ":8237"
+	}
+	if s.cfg.ConsoleListen == "" {
+		s.cfg.ConsoleListen = ":8238"
 	}
 	if s.cfg.Version == 0 {
 		s.cfg.Version = 1
@@ -303,14 +335,11 @@ func (s *Store) Snapshot() Config {
 	return clone(s.cfg)
 }
 
-// Listen returns the configured listener address.
-func (s *Store) Listen() string {
+// Listeners returns the three configured listener addresses.
+func (s *Store) Listeners() Listeners {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.cfg.Listen == "" {
-		return ":8236"
-	}
-	return s.cfg.Listen
+	return s.cfg.Listeners()
 }
 
 // Secret returns the gateway secret used to derive provider session ids.

@@ -7,19 +7,19 @@ import (
 	"testing"
 )
 
+// TestControlPlaneRequiresToken verifies the console port protects /api/v1.
 func TestControlPlaneRequiresToken(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("AFFINITY_CONFIG_FILE", filepath.Join(dir, "config.json"))
+	t.Setenv("AFFINITY_CONFIG_FILE", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("AFFINITY_TOKEN", "test-token")
 
-	handler, err := New()
+	g, err := build()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// No token -> 401
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
+	g.console.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 without token, got %d", rec.Code)
 	}
@@ -28,7 +28,7 @@ func TestControlPlaneRequiresToken(t *testing.T) {
 	rec = httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	req.Header.Set("Authorization", "Bearer wrong")
-	handler.ServeHTTP(rec, req)
+	g.console.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 with wrong token, got %d", rec.Code)
 	}
@@ -37,14 +37,14 @@ func TestControlPlaneRequiresToken(t *testing.T) {
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
-	handler.ServeHTTP(rec, req)
+	g.console.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 with token, got %d", rec.Code)
 	}
 
-	// Health stays public.
+	// Console port health is public.
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	g.console.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("healthz should be public, got %d", rec.Code)
 	}
