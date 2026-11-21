@@ -267,7 +267,7 @@ export function App() {
           ) : page === 'inbound' ? (
             <RoutesPage direction="inbound" routes={config?.inbound ?? []} plugins={plugins} t={t} onReload={load} />
           ) : page === 'egress' ? (
-            <RoutesPage direction="egress" routes={config?.egress ?? []} plugins={plugins} t={t} onReload={load} />
+            <RoutesPage direction="egress" routes={config?.egress ?? []} plugins={plugins} egressProxy={config?.egress_proxy} t={t} onReload={load} />
           ) : page === 'requests' ? (
             <Requests t={t} requests={requests} query={query} onQueryChange={setQuery} />
           ) : page === 'plugins' ? (
@@ -280,6 +280,7 @@ export function App() {
               lang={lang}
               onLangChange={setLang}
               config={config}
+              onProxySaved={(proxy) => setConfig((current) => current ? { ...current, egress_proxy: proxy } : current)}
             />
           )}
         </main>

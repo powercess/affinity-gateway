@@ -34,12 +34,13 @@ const (
 
 // Route is one inbound listener mapping or one egress provider mapping.
 type Route struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Path    string   `json:"path"`
-	Target  string   `json:"target"`
-	State   string   `json:"state"`
-	Plugins []string `json:"plugins"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Path    string         `json:"path"`
+	Target  string         `json:"target"`
+	State   string         `json:"state"`
+	Plugins []string       `json:"plugins"`
+	Proxy   *ProxySettings `json:"proxy,omitempty"`
 }
 
 // InboundPrefix is the only path prefix the gateway proxies on ingress. Every
@@ -67,14 +68,15 @@ type Plugin struct {
 
 // Config is the complete persisted control-plane state.
 type Config struct {
-	Version       int       `json:"version"`
-	Listen        string    `json:"listen"`         // inbound (public AI entry)
-	EgressListen  string    `json:"egress_listen"`  // egress provider entry
-	ConsoleListen string    `json:"console_listen"` // console + control API
-	Inbound       []Route   `json:"inbound"`
-	Egress        []Route   `json:"egress"`
-	Plugins       []Plugin  `json:"plugins"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	Version       int           `json:"version"`
+	Listen        string        `json:"listen"`         // inbound (public AI entry)
+	EgressListen  string        `json:"egress_listen"`  // egress provider entry
+	ConsoleListen string        `json:"console_listen"` // console + control API
+	Inbound       []Route       `json:"inbound"`
+	Egress        []Route       `json:"egress"`
+	EgressProxy   ProxySettings `json:"egress_proxy"`
+	Plugins       []Plugin      `json:"plugins"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 // Listeners holds the three addresses the gateway serves on.
@@ -139,6 +141,7 @@ func Default() Config {
 		Listen:        ":8236",
 		EgressListen:  ":8237",
 		ConsoleListen: ":8238",
+		EgressProxy:   ProxySettings{Mode: "environment"},
 		Inbound: []Route{{
 			ID:      "default",
 			Name:    "默认入站",
@@ -181,6 +184,15 @@ func (s *Store) load() error {
 		return err
 	} else if err := json.Unmarshal(raw, &s.cfg); err != nil {
 		return err
+	}
+	proxyChanged, err := normalizeConfigProxies(&s.cfg)
+	if err != nil {
+		return err
+	}
+	if proxyChanged {
+		if err := s.persistLocked(); err != nil {
+			return err
+		}
 	}
 	if s.cfg.Listen == "" {
 		s.cfg.Listen = ":8236"
@@ -325,7 +337,15 @@ func (s *Store) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, append(raw, '\n'), 0o600)
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // Snapshot returns a copy that callers may read without locking.
@@ -401,8 +421,12 @@ func (s *Store) Add(direction string, route Route) (Route, error) {
 	if err := checkUnique(*list, norm, ""); err != nil {
 		return Route{}, err
 	}
+	previous := clone(s.cfg)
 	*list = append(*list, norm)
-	return norm, s.commitLocked()
+	if err := s.commitLocked(previous); err != nil {
+		return Route{}, err
+	}
+	return cloneRoute(norm), nil
 }
 
 // Update replaces the route identified by id.
@@ -434,8 +458,12 @@ func (s *Store) Update(direction, id string, route Route) (Route, error) {
 	if err := checkUnique(*list, norm, id); err != nil {
 		return Route{}, err
 	}
+	previous := clone(s.cfg)
 	(*list)[index] = norm
-	return norm, s.commitLocked()
+	if err := s.commitLocked(previous); err != nil {
+		return Route{}, err
+	}
+	return cloneRoute(norm), nil
 }
 
 // Delete removes the route identified by id.
@@ -448,8 +476,9 @@ func (s *Store) Delete(direction, id string) error {
 	}
 	for i, r := range *list {
 		if r.ID == id {
+			previous := clone(s.cfg)
 			*list = append((*list)[:i], (*list)[i+1:]...)
-			return s.commitLocked()
+			return s.commitLocked(previous)
 		}
 	}
 	return ErrNotFound
@@ -463,14 +492,15 @@ func (s *Store) UpsertPlugin(p Plugin) (Plugin, error) {
 	if err != nil {
 		return Plugin{}, err
 	}
+	previous := clone(s.cfg)
 	for i, existing := range s.cfg.Plugins {
 		if existing.ID == norm.ID {
 			s.cfg.Plugins[i] = norm
-			return norm, s.commitLocked()
+			return norm, s.commitLocked(previous)
 		}
 	}
 	s.cfg.Plugins = append(s.cfg.Plugins, norm)
-	return norm, s.commitLocked()
+	return norm, s.commitLocked(previous)
 }
 
 // DeletePlugin removes a plugin that is not referenced by any route.
@@ -490,13 +520,14 @@ func (s *Store) DeletePlugin(id string) error {
 			return fmt.Errorf("插件 %q 仍被出站路由 %q 使用", id, r.ID)
 		}
 	}
+	previous := clone(s.cfg)
 	for i, p := range s.cfg.Plugins {
 		if p.ID == id {
 			s.cfg.Plugins = append(s.cfg.Plugins[:i], s.cfg.Plugins[i+1:]...)
 			break
 		}
 	}
-	return s.commitLocked()
+	return s.commitLocked(previous)
 }
 
 func (s *Store) validateRoutePluginsLocked(direction string, ids []string) error {
@@ -512,9 +543,13 @@ func (s *Store) validateRoutePluginsLocked(direction string, ids []string) error
 	return nil
 }
 
-func (s *Store) commitLocked() error {
+func (s *Store) commitLocked(previous Config) error {
 	s.cfg.UpdatedAt = time.Now().UTC()
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		s.cfg = previous
+		return ErrPersistence
+	}
+	return nil
 }
 
 func checkUnique(list []Route, candidate Route, skipID string) error {
@@ -564,6 +599,11 @@ func normalizeRoute(direction string, route Route) (Route, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return Route{}, fmt.Errorf("目标地址必须是 http(s) URL: %q", route.Target)
 	}
+	proxy, err := normalizeRouteProxy(direction, route.Proxy)
+	if err != nil {
+		return Route{}, err
+	}
+	route.Proxy = proxy
 	route.Plugins = cleanStrings(route.Plugins)
 	if direction == Inbound {
 		// Inbound is a single target at /v1/; the path field is not used.
@@ -646,14 +686,10 @@ func clone(c Config) Config {
 		c.Plugins = append([]Plugin{}, c.Plugins...)
 	}
 	for i := range c.Inbound {
-		if c.Inbound[i].Plugins != nil {
-			c.Inbound[i].Plugins = append([]string{}, c.Inbound[i].Plugins...)
-		}
+		c.Inbound[i] = cloneRoute(c.Inbound[i])
 	}
 	for i := range c.Egress {
-		if c.Egress[i].Plugins != nil {
-			c.Egress[i].Plugins = append([]string{}, c.Egress[i].Plugins...)
-		}
+		c.Egress[i] = cloneRoute(c.Egress[i])
 	}
 	return c
 }

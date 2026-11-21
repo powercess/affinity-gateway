@@ -1,6 +1,16 @@
 export type Direction = 'inbound' | 'egress';
 export type RouteState = 'active' | 'inactive';
 
+export type ProxySettings = {
+  mode: 'environment' | 'direct' | 'custom';
+  url?: string;
+};
+
+export type RouteProxy = {
+  mode: 'inherit' | 'direct' | 'custom';
+  url?: string;
+};
+
 export type Route = {
   id: string;
   name: string;
@@ -8,6 +18,7 @@ export type Route = {
   target: string;
   state: RouteState;
   plugins: string[];
+  proxy?: RouteProxy | null;
 };
 
 export type PluginDirection = 'inbound' | 'egress' | 'both';
@@ -51,6 +62,7 @@ export type GatewayConfig = {
   listen: string;
   inbound: Route[];
   egress: Route[];
+  egress_proxy?: ProxySettings;
   plugins: Plugin[];
   updated_at: string;
 };

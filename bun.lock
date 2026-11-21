@@ -7,7 +7,7 @@
     },
     "apps/console": {
       "name": "@affinity-gateway/console",
-      "version": "0.1.0",
+      "version": "1.2.0",
       "dependencies": {
         "@codemirror/lang-json": "^6.0.1",
         "@codemirror/language": "^6.11.3",

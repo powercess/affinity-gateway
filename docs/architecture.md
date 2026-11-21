@@ -99,6 +99,7 @@ is the only expected writer.
 {
   "version": 1,
   "listen": ":8236",
+  "egress_proxy": { "mode": "environment" },
   "inbound": [
     { "id": "default", "name": "默认入站", "path": "/v1/chat/completions",
       "target": "http://127.0.0.1:9000", "state": "active",
@@ -115,6 +116,47 @@ is the only expected writer.
 `state` is `active` or `inactive`; inactive routes are ignored by the proxy.
 Egress `path` is always `/egress/{id}`. Inbound is a **single target** at
 `/v1/`; the inbound `path` field is unused.
+
+### Outbound proxy policy
+
+The global `egress_proxy` setting applies only to egress provider requests.
+Inbound forwarding retains the existing `net/http` environment-proxy behavior,
+so a new global outbound proxy does not divert the internal hop to new-api.
+
+| Setting | Mode | Behavior |
+| --- | --- | --- |
+| Global `egress_proxy` | `environment` | Use `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`; default for old configurations |
+| Global `egress_proxy` | `direct` | Connect directly, ignoring proxy environment variables |
+| Global `egress_proxy` | `custom` | Use the supplied `url` |
+| Egress route `proxy` | omitted, `null`, or `inherit` | Inherit the global outbound policy |
+| Egress route `proxy` | `direct` | Bypass both the global proxy and proxy environment variables |
+| Egress route `proxy` | `custom` | Use this route's `url` instead of the global policy |
+
+For example, save a global SOCKS5 proxy through `PUT /api/v1/egress-proxy`:
+
+```json
+{
+  "mode": "custom",
+  "url": "socks5h://proxy-user:proxy-password@proxy.example:1080"
+}
+```
+
+An individual egress route can override it with `"proxy": { "mode": "direct" }`,
+or with `"proxy": { "mode": "custom", "url": "http://proxy.example:3128" }`.
+Use `"proxy": { "mode": "inherit" }` to remove an override. Non-inherited route
+proxy settings are not accepted on inbound routes.
+
+Custom URLs accept only `http`, `https`, `socks5`, or `socks5h`. The hostname and
+port must be valid; query strings, fragments, and non-root paths are rejected.
+Percent-encode reserved characters in usernames and passwords. SOCKS5 hostname
+resolution happens at the proxy. `NO_PROXY` applies to environment mode only;
+use a route's `direct` override to bypass a custom global proxy.
+
+Changes are validated, persisted, and used by subsequent requests without a
+restart. Connections are pooled by proxy policy rather than allocating a new
+transport per request. Proxy credentials are kept in the private configuration
+file and authenticated control API, never in the route-list summary or proxy
+validation errors. Non-custom policies discard any obsolete proxy URL.
 
 ### Local runtime state
 
@@ -135,6 +177,7 @@ console and session affinity survive a restart.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/config` | full config snapshot |
+| GET/PUT | `/api/v1/egress-proxy` | read / update the global outbound proxy policy |
 | GET | `/api/v1/status` | mode and route counts |
 | GET | `/api/v1/plugins` | plugin definitions (with Lua source) |
 | PUT/DELETE | `/api/v1/plugins/{id}` | upsert / delete a plugin |

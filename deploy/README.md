@@ -28,3 +28,14 @@ control-plane token, or read the generated one from `/data/token`.
 
 Addresses can be overridden with `AFFINITY_LISTEN` (inbound),
 `AFFINITY_EGRESS_LISTEN`, and `AFFINITY_CONSOLE_LISTEN`.
+
+Configure global outbound proxy settings in the console's **Settings** page and
+per-provider overrides in **Egress routes**. These settings persist in
+`/data/config.json` and apply without recreating the container.
+
+The default global policy is `environment`, which preserves deployments using
+`HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Changing those environment variables
+still requires recreating the container. In environment mode, include internal
+targets such as `new-api` in `NO_PROXY` so inbound forwarding stays on the Docker
+network. A custom global outbound proxy applies only to egress routes; mark a
+route `direct` when it must bypass that proxy.

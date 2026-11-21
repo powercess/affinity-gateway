@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { emptyRoute, type Direction, type Plugin, type Route } from '@/lib/types';
+import { emptyRoute, type Direction, type Plugin, type Route, type RouteProxy } from '@/lib/types';
 import type { Translate } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -65,10 +65,20 @@ export function RouteDialog({ open, onOpenChange, direction, initial, plugins, s
       setError(t('common.required'));
       return;
     }
+    if (direction === 'egress' && form.proxy?.mode === 'custom' && !form.proxy.url?.trim()) {
+      setError(t('proxy.urlRequired'));
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      await onSubmit({ ...form, id: form.id.trim(), name: form.name.trim(), target: form.target.trim() });
+      const route = { ...form, id: form.id.trim(), name: form.name.trim(), target: form.target.trim() };
+      if (direction === 'egress') {
+        route.proxy = form.proxy?.mode === 'custom'
+          ? { mode: 'custom', url: form.proxy.url?.trim() }
+          : form.proxy?.mode === 'direct' ? { mode: 'direct' } : null;
+      }
+      await onSubmit(route);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -131,6 +141,48 @@ export function RouteDialog({ open, onOpenChange, direction, initial, plugins, s
             />
             <p className="text-[11px] text-muted-foreground">{t('routes.form.targetHint')}</p>
           </div>
+
+          {direction === 'egress' ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="route-proxy-mode">{t('proxy.mode')}</Label>
+                <Select
+                  id="route-proxy-mode"
+                  value={form.proxy?.mode ?? 'inherit'}
+                  disabled={saving}
+                  onChange={(event) => {
+                    update('proxy', { mode: event.target.value as RouteProxy['mode'] });
+                    setError('');
+                  }}
+                >
+                  <option value="inherit">{t('proxy.inherit')}</option>
+                  <option value="direct">{t('proxy.direct')}</option>
+                  <option value="custom">{t('proxy.custom')}</option>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">{t(`proxy.${form.proxy?.mode ?? 'inherit'}Hint`)}</p>
+              </div>
+              {form.proxy?.mode === 'custom' ? (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="route-proxy-url">{t('proxy.url')}</Label>
+                  <Input
+                    id="route-proxy-url"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={form.proxy.url ?? ''}
+                    disabled={saving}
+                    onChange={(event) => {
+                      update('proxy', { mode: 'custom', url: event.target.value });
+                      setError('');
+                    }}
+                    placeholder="http://proxy.example.com:8080"
+                    aria-describedby="route-proxy-url-hint"
+                  />
+                  <p id="route-proxy-url-hint" className="text-[11px] text-muted-foreground">{t('proxy.urlHint')}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="route-state">{t('routes.form.state')}</Label>

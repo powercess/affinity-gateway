@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -154,6 +153,15 @@ func (p proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(u)
+	if p.egress {
+		settings := cfg.EgressProxy
+		if route.Proxy != nil && route.Proxy.Mode != "inherit" {
+			settings = *route.Proxy
+		}
+		entry := egressTransports.acquire(settings)
+		defer egressTransports.release(entry)
+		proxy.Transport = entry.transport
+	}
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = u.Scheme
 		req.URL.Host = u.Host
@@ -161,8 +169,9 @@ func (p proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.URL.RawPath = ""
 		req.Host = u.Host
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, e error) {
-		writeProxyError(w, http.StatusBadGateway, fmt.Sprintf("upstream unavailable: %v", e))
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+		// Transport errors can include proxy URLs (including credentials).
+		writeProxyError(w, http.StatusBadGateway, "upstream unavailable")
 	}
 
 	cw := &countWriter{ResponseWriter: w}

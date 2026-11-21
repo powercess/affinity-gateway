@@ -15,18 +15,19 @@ import { RouteDialog } from '@/components/RouteDialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import type { Translate } from '@/lib/i18n';
-import type { Direction, Plugin, Route } from '@/lib/types';
+import type { Direction, Plugin, ProxySettings, Route } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 type Props = {
   direction: Direction;
   routes: Route[];
   plugins: Plugin[];
+  egressProxy?: ProxySettings;
   t: Translate;
   onReload: () => void;
 };
 
-export function RoutesPage({ direction, routes, plugins, t, onReload }: Props) {
+export function RoutesPage({ direction, routes, plugins, egressProxy, t, onReload }: Props) {
   const [editing, setEditing] = useState<Route | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Route | null>(null);
@@ -147,6 +148,17 @@ export function RoutesPage({ direction, routes, plugins, t, onReload }: Props) {
                 <p className="text-[11px] text-muted-foreground">{targetLabel}</p>
                 <p className="truncate text-sm">{route.target}</p>
               </div>
+
+              {direction === 'egress' ? (
+                <div>
+                  <p className="text-[11px] text-muted-foreground">{t('proxy.mode')}</p>
+                  <p className="text-sm">
+                    {!route.proxy || route.proxy.mode === 'inherit'
+                      ? t('proxy.inherited', { mode: t(`proxy.${egressProxy?.mode ?? 'environment'}`) })
+                      : t(`proxy.${route.proxy.mode}`)}
+                  </p>
+                </div>
+              ) : null}
 
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <SlidersHorizontal size={13} />

@@ -29,6 +29,12 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch parts[0] {
 	case "config":
 		h.writeJSON(w, h.Store.Snapshot())
+	case "egress-proxy":
+		if len(parts) != 1 {
+			http.NotFound(w, r)
+			return
+		}
+		h.egressProxy(w, r)
 	case "status":
 		c := h.Store.Snapshot()
 		h.writeJSON(w, map[string]any{
@@ -49,6 +55,26 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.routes(w, r, parts)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func (h Handler) egressProxy(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(w, h.Store.Snapshot().EgressProxy)
+	case http.MethodPut:
+		var settings config.ProxySettings
+		if !h.decode(w, r, &settings) {
+			return
+		}
+		saved, err := h.Store.SetEgressProxy(settings)
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		h.writeJSON(w, saved)
+	default:
+		h.methodNotAllowed(w)
 	}
 }
 
@@ -208,7 +234,7 @@ func (h Handler) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	defer r.Body.Close()
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err := dec.Decode(v); err != nil {
-		h.fail(w, err)
+		h.fail(w, errors.New("invalid JSON request body"))
 		return false
 	}
 	return true
@@ -226,7 +252,9 @@ func (h Handler) writeJSONStatus(w http.ResponseWriter, status int, v any) {
 
 func (h Handler) fail(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
-	if errors.Is(err, config.ErrNotFound) {
+	if errors.Is(err, config.ErrPersistence) {
+		status = http.StatusInternalServerError
+	} else if errors.Is(err, config.ErrNotFound) {
 		status = http.StatusNotFound
 	} else if strings.Contains(err.Error(), "已存在") ||
 		strings.Contains(err.Error(), "已被占用") ||

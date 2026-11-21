@@ -1,4 +1,4 @@
-import type { GatewayConfig, Metrics, Plugin, RequestDetail, RequestRecord, Route } from './types';
+import type { GatewayConfig, Metrics, Plugin, ProxySettings, RequestDetail, RequestRecord, Route } from './types';
 
 const TOKEN_KEY = 'affinity.token';
 
@@ -58,12 +58,21 @@ export const api = {
     const config = await request<GatewayConfig>('/api/v1/config');
     const list = (routes: Route[] | null | undefined) =>
       (Array.isArray(routes) ? routes : []).map(normalizeRoute);
-    return { ...config, inbound: list(config.inbound), egress: list(config.egress) };
+    return {
+      ...config,
+      inbound: list(config.inbound),
+      egress: list(config.egress),
+      egress_proxy: config.egress_proxy ?? { mode: 'environment' },
+    };
   },
   metrics: () => request<Metrics>('/api/v1/metrics'),
   plugins: () => request<Plugin[]>('/api/v1/plugins'),
   requests: () => request<RequestRecord[]>('/api/v1/requests'),
   requestDetail: (id: number) => request<RequestDetail>(`/api/v1/requests/${id}`),
+
+  egressProxy: () => request<ProxySettings>('/api/v1/egress-proxy'),
+  saveEgressProxy: (proxy: ProxySettings) =>
+    request<ProxySettings>('/api/v1/egress-proxy', { method: 'PUT', body: JSON.stringify(proxy) }),
 
   createRoute: (direction: 'inbound' | 'egress', route: unknown) =>
     request(`/api/v1/${direction}`, { method: 'POST', body: JSON.stringify(route) }),
