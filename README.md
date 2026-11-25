@@ -47,4 +47,6 @@ For the three-listener gateway, run the console with
 `AFFINITY_GATEWAY=http://127.0.0.1:8238` so `/api` reaches the control port.
 Set `AFFINITY_ALLOWED_HOSTS` (comma separated, or `*`) to allow tunnel hosts,
 and `AFFINITY_CONFIG_FILE` / `AFFINITY_LISTEN` to run the gateway elsewhere.
+`AFFINITY_EGRESS_RESPONSE_HEADER_TIMEOUT` (Go duration, default `120s`, `0`
+disables) bounds how long an egress request waits for upstream response headers.
 

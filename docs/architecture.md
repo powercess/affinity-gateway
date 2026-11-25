@@ -158,6 +158,16 @@ transport per request. Proxy credentials are kept in the private configuration
 file and authenticated control API, never in the route-list summary or proxy
 validation errors. Non-custom policies discard any obsolete proxy URL.
 
+Every egress transport pins ALPN to `http/1.1`, so concurrent requests to one
+provider use separate connections. HTTP/2 would multiplex all of them onto a
+single TLS connection, and a connection that goes dark without a reset (NAT
+table drop, half-open proxy hop, silent middlebox) would then stall every route
+to that provider until TCP gives up. Waits for upstream response headers are
+bounded by `AFFINITY_EGRESS_RESPONSE_HEADER_TIMEOUT` (Go duration, default
+`120s`, `0` disables), which turns a dead pooled connection into a fast
+`502 upstream unavailable` the caller can retry elsewhere. Streaming bodies are
+never interrupted by that bound.
+
 ### Local runtime state
 
 Alongside `config.json`, the gateway persists runtime state under the same

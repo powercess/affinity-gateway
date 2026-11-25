@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -329,5 +330,77 @@ func TestEnvironmentProxyAndDirectOverride(t *testing.T) {
 	cmd.Env = append(cmd.Env, "HTTP_PROXY="+proxy.URL, "NO_PROXY=", "AFFINITY_PROXY_TEST_CHILD=1", "AFFINITY_PROXY_TEST_TARGET="+direct.URL)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("environment proxy child failed: %v\n%s", err, output)
+	}
+}
+
+// Every egress route to a provider must get its own HTTP/1.1 connection. When
+// the cohort shared one multiplexed TLS connection, a connection that died
+// without a reset stalled every channel to that provider for minutes.
+func TestEgressTransportPinsHTTP11(t *testing.T) {
+	type seen struct {
+		offered []string
+		proto   string
+	}
+	observed := make(chan seen, 4)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r
+	}))
+	server.TLS = &tls.Config{GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		observed <- seen{offered: append([]string(nil), hello.SupportedProtos...)}
+		return nil, nil
+	}}
+	server.StartTLS()
+	defer server.Close()
+
+	for name, settings := range map[string]config.ProxySettings{
+		"environment": {},
+		"direct":      {Mode: "direct"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cache := newTransportCache()
+			entry := cache.acquire(settings)
+			defer cache.release(entry)
+			entry.transport.TLSClientConfig.InsecureSkipVerify = true // httptest certificate
+			client := &http.Client{Transport: entry.transport}
+
+			resp, err := client.Get(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			got := <-observed
+			for _, proto := range got.offered {
+				if proto == "h2" {
+					t.Fatalf("client offered ALPN %q; h2 would multiplex every route onto one connection", got.offered)
+				}
+			}
+			if want := []string{egressALPNProtocol}; len(got.offered) != 1 || got.offered[0] != want[0] {
+				t.Fatalf("client offered ALPN %q, want %q", got.offered, want)
+			}
+		})
+	}
+}
+
+// A provider that accepts the connection but never sends headers must fail the
+// request instead of parking it until TCP gives up.
+func TestEgressTransportBoundsHeaderWait(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	client := &http.Client{Transport: newEgressTransport(80 * time.Millisecond)}
+	start := time.Now()
+	_, err := client.Get(server.URL)
+	if err == nil {
+		t.Fatal("expected a response header timeout")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("error = %v, want a response header timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("header wait lasted %s, want it bounded near 80ms", elapsed)
 	}
 }
